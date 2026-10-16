@@ -3544,7 +3544,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 </div>
 </div>
 <div style="display: flex; gap: 8px; align-items: center;">
-<input id="searchInput" oninput="renderDashboard()" placeholder="Quick search Office Name or SOL ID..." style="flex: 1;" type="text"/>
+<input id="searchInput" oninput="renderDashboardDebounced()" placeholder="Quick search Office Name or SOL ID..." style="flex: 1;" type="text"/>
 <button class="btn-action" onclick="resetFilters()">Reset Filters</button>
 </div>
 </div>
@@ -3674,8 +3674,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 <label for="weeklyTypeSelect">Office Type</label>
 <select id="weeklyTypeSelect" onchange="renderWeeklyMonitoring()">
 <option value="ALL">All Types</option>
-<option value="HPO">HPO</option>
-<option value="GPO">GPO</option>
+<option value="HPO">HPO / GPO</option>
 <option value="SPO">SPO</option>
 <option value="BPO">BPO</option>
 </select>
@@ -3730,30 +3729,6 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 </tr>
 </thead>
 <tbody id="weeklySubDivisionBody"></tbody>
-</table>
-</div>
-</section>
-<section class="weekly-section-card">
-<div class="weekly-section-title"><h3>3. HO Summary — HPO / GPO</h3><span>Individual HPO/GPO performance against 120 Net Addition.</span><button class="btn-action btn-image" onclick="copyTableAsImage('weeklyHoTable')">🖼️ Copy as Image</button><button class="btn-action btn-excel" onclick="downloadTableAsExcel('weeklyHoTable', 'Weekly_HO_Summary')">📥 Download Excel</button></div>
-<div class="weekly-table-wrap">
-<table class="weekly-table" id="weeklyHoTable">
-<thead><tr>
-<th class="left">Office Name</th><th>Type</th><th class="left">Division</th><th class="left">Sub Division</th>
-<th>Target</th><th>Achievement</th><th>Shortfall</th><th>% Achievement</th><th>Status</th>
-</tr></thead>
-<tbody id="weeklyHoBody"></tbody>
-</table>
-</div>
-</section>
-<section class="weekly-section-card">
-<div class="weekly-section-title"><h3>4. Office-wise List — Target Not Achieved</h3><span>All selected office types below their applicable weekly target.</span><button class="btn-action btn-image" onclick="copyTableAsImage('weeklyFailTable')">🖼️ Copy as Image</button><button class="btn-action btn-excel" onclick="downloadTableAsExcel('weeklyFailTable', 'Weekly_Target_Not_Achieved')">📥 Download Excel</button></div>
-<div class="weekly-table-wrap">
-<table class="weekly-table" id="weeklyFailTable">
-<thead><tr>
-<th class="left">Office Name</th><th>Type</th><th class="left">Division</th><th class="left">Sub Division</th>
-<th>Weekly Target</th><th>Achievement</th><th>Shortfall</th><th>% Achievement</th><th>Remark</th>
-</tr></thead>
-<tbody id="weeklyFailBody"></tbody>
 </table>
 </div>
 </section>
@@ -4544,7 +4519,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 <div class="card-header">
 <div>
 <h2 style="font-size: 19px; font-weight: 900; color: #0f172a;">Nagpur Region Target Vs Achievement Matrix</h2>
-<p style="font-size: 12px; color: #64748b;">Click <strong>▶</strong> to expand down to <strong>Sub Division, SO Name, and BO Name</strong>. <span class="edit-only-note">Targets are editable by Administrator (✏️).</span></p>
+<p style="font-size: 12px; color: #64748b;">Click <strong>▶</strong> to expand down to <strong>Sub Division, SO Name, and BO Name</strong>.</p>
 </div>
 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
 <button class="btn-action" onclick="toggleAllTargetTree()">Expand / Collapse All</button>
@@ -4702,7 +4677,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 <button class="btn-action" id="downloadFilteredBulkTemplateBtn" onclick="downloadBulkTargetTemplate(event)" style="background:#f0fdf4; color:#15803d;" type="button">📥 Download Filtered Bulk Template</button>
 <button class="btn-action" onclick="document.getElementById('bulkTargetFileInput').click()" style="background:#eff6ff; color:#1d4ed8;">📤 Bulk Upload Targets</button>
 <button class="btn-action" onclick="copyTableToClipboard('subDnMonitoringTable')">📋 Copy to Excel</button>
-<button class="btn-action btn-image" onclick="copyTableAsImage('subDnMonitoringTable')">🖼️ Copy as Image</button><button class="btn-action btn-excel" onclick="downloadTableAsExcel('subDnMonitoringTable', 'Sub_Dn_Target_Monitoring')">📥 Download Excel</button>
+<button class="btn-action btn-image" onclick="copyTableAsImage('subDnMonitoringTable')">🖼️ Copy as Image</button><button class="btn-action btn-pdf-report" onclick="exportReportTableToPDF('subDnMonitoringTable', 'Sub_Dn_Target_Monitoring')">📄 Export PDF</button><button class="btn-action btn-excel" onclick="downloadTableAsExcel('subDnMonitoringTable', 'Sub_Dn_Target_Monitoring')">📥 Download Excel</button>
 </input></div>
 </div>
 <section aria-label="Top 5 Sub Divisions by Proportionate Target Achievement" class="subdn-top-section">
@@ -4737,22 +4712,24 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 </div>
 <div>
 <label class="filter-label">Office Type</label>
-<select id="subDnTypeSelect" onchange="renderSubDnMonitoringTable()">
-<option value="ALL" selected>All Office Types (GPO / HPO / SPO / BPO)</option>
-<option value="GPO">GPO</option>
-<option value="HPO">HPO</option>
+<select id="subDnTypeSelect" onchange="populateSubDnOfficeSelect(); renderSubDnMonitoringTable()">
+<option value="ALL" selected>All Office Types (HPO / GPO / SPO / BPO)</option>
+<option value="HPO">HPO / GPO</option>
 <option value="SPO">SPO</option>
 <option value="BPO">BPO</option>
 </select>
 </div>
 <div>
 <label class="filter-label">SO Name</label>
-<select id="subDnSoSelect" onchange="renderSubDnMonitoringTable()"><option value="ALL">All SOs</option></select>
+<select id="subDnSoSelect" onchange="populateSubDnOfficeSelect(); renderSubDnMonitoringTable()"><option value="ALL">All SOs</option></select>
 </div>
 <div>
-<label class="filter-label">Search Office / SOL ID</label>
-<input id="subDnSearchInput" oninput="renderSubDnMonitoringTable()" placeholder="Type office or SOL ID..." type="text">
-</input></div>
+<label class="filter-label">Office / SOL ID</label>
+<select id="subDnOfficeSelect" onchange="renderSubDnMonitoringTable()"><option value="ALL">All Offices / SOL IDs</option></select>
+</div>
+<div style="display:flex;align-items:end;">
+<button class="btn-action" type="button" onclick="resetSubDnFilters()" style="width:100%;background:#fff1f2;color:#be123c;">✕ Clear Filters</button>
+</div>
 </div>
 </div>
 <div class="subdn-filter-kpi-grid" aria-label="Sub Division filtered summary">
@@ -4761,17 +4738,17 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 <div class="subdn-filter-kpi"><span class="subdn-filter-kpi-label">Total Proportionate Target</span><div id="subDnKpiPropTarget" class="subdn-filter-kpi-value">0</div><div class="subdn-filter-kpi-note">Applicable target for selected period</div></div>
 <div class="subdn-filter-kpi"><span class="subdn-filter-kpi-label">Achievement — Net Addition</span><div id="subDnKpiAchieved" class="subdn-filter-kpi-value">0</div><div id="subDnKpiAchievedPct" class="subdn-filter-kpi-note">0.0% of Prop. Target</div><div id="subDnKpiShortfall" class="subdn-filter-kpi-note">0</div></div>
 </div>
-<section aria-label="Top SPO and Top 3 BPOs from Sub Divisions" class="subdn-top-office-section">
+<section aria-label="Top SPO and Top 3 BPOs from Sub Divisions" class="subdn-top-office-section" id="subDnTopOfficeSection">
   <div class="subdn-top-office-heading">
     <div><span class="subdn-top-office-title">TOP SPO &amp; TOP 3 BPOs</span><span class="subdn-top-office-subtitle">from Sub Divisions by % Proportionate Target Achievement</span></div>
-    <span class="subdn-top-office-badge">LIVE • Selected Filters</span>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;"><span class="subdn-top-office-badge">LIVE • Selected Filters</span><button class="btn-action btn-image" type="button" onclick="captureReportSectionAsImage('subDnTopOfficeSection','Top_SPO_Top_3_BPOs')">🖼 Screenshot</button></div>
   </div>
   <div class="subdn-top-office-grid" id="subDnTopOfficeKpiGrid"></div>
 </section>
 
 
 <div class="table-responsive">
-<table id="subDnMonitoringTable">
+<table id="subDnMonitoringTable" data-pdf-button-installed="1">
 <thead>
 <tr>
 <th onclick="sortTable('subDnMonitoringTable', 0)">Office <span class="sort-arrow">↕</span></th>
@@ -4959,7 +4936,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 </div>
 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 0; border-top: 1px solid #f1f5f9;">
 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; flex: 1;">
-<input id="daywiseSearchInput" oninput="renderDaywiseModule()" placeholder="🔍 Search Unit / HPO..." style="max-width: 220px;" type="text">
+<input id="daywiseSearchInput" oninput="renderDaywiseDebounced()" placeholder="🔍 Search Unit / HPO..." style="max-width: 220px;" type="text">
 <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #475569;">
 <span>Division:</span>
 <select id="daywiseDivSelect" onchange="onDaywiseDivChange()" style="max-width: 220px;"><option value="ALL">All Divisions</option></select>
@@ -5004,7 +4981,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       <div class="daywise-bottom-filter-field"><label for="daywiseBottomDivision">Division</label><select id="daywiseBottomDivision" onchange="onDaywiseBottomDivisionChange()"><option value="ALL">All Divisions</option></select></div>
       <div class="daywise-bottom-filter-field"><label for="daywiseBottomSubDivision">Sub Division</label><select id="daywiseBottomSubDivision" onchange="onDaywiseBottomSubDivisionChange()"><option value="ALL">All Sub Divisions</option></select></div>
       <div class="daywise-bottom-filter-field"><label for="daywiseBottomSoName">SO Name</label><select id="daywiseBottomSoName" onchange="renderDedicatedDaywiseOfficeReport()"><option value="ALL">All SO Names</option></select></div>
-      <div class="daywise-bottom-filter-field"><label for="daywiseBottomOfficeType">Office Type</label><select id="daywiseBottomOfficeType" onchange="renderDedicatedDaywiseOfficeReport()"><option value="ALL">All Office Types</option><option value="HPO">HPO</option><option value="GPO">GPO</option><option value="SO">SO</option><option value="BO">BO</option></select></div>
+      <div class="daywise-bottom-filter-field"><label for="daywiseBottomOfficeType">Office Type</label><select id="daywiseBottomOfficeType" onchange="renderDedicatedDaywiseOfficeReport()"><option value="ALL">All Office Types</option><option value="HPO">HPO / GPO</option><option value="SO">SO</option><option value="BO">BO</option></select></div>
       <div class="daywise-bottom-filter-field"><label for="daywiseBottomReportType">Report Type</label><select id="daywiseBottomReportType" onchange="renderDedicatedDaywiseOfficeReport()"><option value="6DAYS">6 Days</option><option value="MONTHLY">Monthly</option></select></div>
     </div>
 </div>
@@ -5600,7 +5577,11 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     }
 
     const DB_NAME = 'POSB_Nagpur_LocalDB';
-    const STORE_NAME = 'posb_records';
+    // V2 stores one deterministic record per date/SOL.  The old auto-increment
+    // store is retained only as a one-time migration source; it is never
+    // rewritten during an incremental Google sync.
+    const STORE_NAME = 'posb_records_v2';
+    const LEGACY_STORE_NAME = 'posb_records';
     const CONFIG_STORE_NAME = 'posb_dashboard_config';
 
     // Secondary browser cache for the latest data fetched from Google Sheet.
@@ -5610,8 +5591,9 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     const GOOGLE_SHEET_LOCAL_CACHE_META_KEY = 'posb_google_sheet_data_v1_meta';
     const GOOGLE_SHEET_LOCAL_CACHE_CHUNK_SIZE = 900000;
 
-    // Lightweight offline snapshot: IndexedDB is used only as a background
-    // persistence layer. It never blocks the dashboard or Google Sheet sync.
+    // IndexedDB is the durable, browser-local source for downloaded data.
+    // A Google sync is not reported complete until this store has been
+    // written and read back successfully.
     function saveGoogleSheetDataToLocalStorage(records) { return false; }
     function loadGoogleSheetDataFromLocalStorage() { return []; }
 
@@ -5620,17 +5602,20 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       if (offlineRestoreInProgress) return rawTransactions;
       if (rawTransactions.length && !forceReload) return rawTransactions;
       offlineRestoreInProgress = true;
-      setDashboardLoading(true, 'Loading local database, please wait…', 420);
+      setDashboardLoading(true, 'Loading local database, please wait…', 0);
       const localLoadStartedAt = performance.now();
       let localReadProgressTimer = null;
       let localReadTimeout = null;
       updateGoogleSheetButtonState();
-      updateViewOnlySyncProgress(0, 'Loading local browser data…', true);
+      updateViewOnlySyncProgress(5, 'Loading local browser data…', true);
       setGoogleSheetStatus('📦 Checking this browser profile for previously stored dashboard data…');
       localReadProgressTimer = setInterval(() => {
         const elapsed = fmtElapsed(performance.now() - localLoadStartedAt);
         setGoogleSheetStatus(`📦 Still reading the local browser database… ${elapsed}`);
-        updateViewOnlySyncProgress(0, `Local database read in progress • ${elapsed}`, true);
+        const knownLoadMs = Number(safeLocalStorageGet('posb_local_store_load_ms') || 15000);
+        const elapsedMs = performance.now() - localLoadStartedAt;
+        const estimatedPct = Math.min(92, 5 + Math.round((elapsedMs / Math.max(1000, knownLoadMs)) * 82));
+        updateViewOnlySyncProgress(estimatedPct, `Local database read in progress • ${elapsed}`, true);
       }, 3000);
       try {
         const saved = await Promise.race([
@@ -5649,8 +5634,15 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         }
         lastLocalStoreLoadMs = performance.now() - localLoadStartedAt;
         try { safeLocalStorageSet('posb_local_store_load_ms', String(Math.round(lastLocalStoreLoadMs))); } catch (_) {}
+        // Do not let stale browser metadata claim a completed download when
+        // the durable records are absent. The next manual Google sync will
+        // repair it and prove the write before showing success.
+        try {
+          const expected = Number(safeLocalStorageGet('posb_local_db_verified_rows') || 0);
+          if (expected > 0) safeLocalStorageSet('posb_local_db_needs_repair', 'true');
+        } catch (_) {}
         updateViewOnlySyncProgress(0, `No local records found • Load time ${fmtElapsed(lastLocalStoreLoadMs)}`, false);
-        setGoogleSheetStatus('ℹ️ No local browser cache found. Use “Sync Google Sheet Now” to load current data.');
+        setGoogleSheetStatus('ℹ️ No local browser cache found. Use “Sync Google Sheet Now” to download and permanently save the current data.');
         return [];
       } catch (err) {
         console.warn('Offline snapshot unavailable:', err);
@@ -5708,12 +5700,22 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 
     async function manualGoogleSheetSync() {
       if (googleSheetSyncInProgress) return;
+      const firstDownload = !Array.isArray(rawTransactions) || rawTransactions.length === 0;
+      // The visible modal is deliberately started by the user action, rather
+      // than on page load. It receives every page-progress update below.
+      setDashboardLoading(true, firstDownload
+        ? 'Downloading the initial POSB data set from Google Sheets…'
+        : 'Checking Google Sheets for changed POSB date batches…', 0);
       updateViewOnlySyncProgress(0, 'Starting manual Google Sheet sync…', true);
       setGoogleSheetStatus('🔎 Manual Google Sheet sync started…');
       try {
-        await syncFromGoogleSheet({silent:false, background:false, retry404:true});
+        // A browser with no durable rows must always receive a full initial
+        // download, even if it still has stale count/version metadata.
+        await syncFromGoogleSheet({silent:false, background:false, retry404:true, force:firstDownload});
       } catch (err) {
         console.error(err);
+      } finally {
+        setDashboardLoading(false);
       }
     }
 
@@ -5735,11 +5737,13 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     // IMPORTANT: after deploying the NEW Apps Script Web App, paste its
     // /exec URL below. Do NOT use the old DAILY_SUMMARY/raw transaction payload endpoint.
     // ============================================================
-    const GOOGLE_SHEET_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbztnlOrvhlAoGR_c39OT6ybsvFsfOwm70sNv6hUkvY7qMnHr99nZjZoHVl4YLAzMdsE/exec';
+    const GOOGLE_SHEET_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwo3LdQEmrfr2dGvQiwPpS0Yq_u3LcY_YLCm6495PL5WKS9-84CT7biBzicDLe4Op7N/exec';
     const POSB_BACKEND_MASTER_ID = '1K0EARCuXA4aL6y4NUSFeUZoTdbii3GvOPmh4ywcbjXg';
     const POSB_BACKEND_VERSION = '4.8';
     const POSB_BACKEND_FY_START = '2026-04-01';
-    const POSB_BACKEND_POLL_MS = 30 * 1000;
+    // Google Sheets is contacted only when the operator chooses Sync.  This
+    // prevents background traffic, surprise full refreshes, and UI contention.
+    const POSB_BACKEND_POLL_MS = 0;
     const POSB_BACKEND_PAGE_SIZE = 5000;
     const POSB_BACKEND_TIMEOUT_MS = 120000;
     const POSB_BACKEND_SUMMARY_SHEET = 'DAILY_SUMMARY';
@@ -5757,23 +5761,132 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 
     function openLocalDB() {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME);
+        // Version 3 guarantees that browsers which opened an older dashboard
+        // receive the durable v2-record store even if a prior database used
+        // the same database name but a different schema.
+        const req = indexedDB.open(DB_NAME, 3);
         req.onupgradeneeded = (e) => {
           const db = e.target.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) {
-            db.createObjectStore(STORE_NAME, { autoIncrement: true });
-          }
-          if (!db.objectStoreNames.contains(CONFIG_STORE_NAME)) {
-            db.createObjectStore(CONFIG_STORE_NAME, { keyPath: 'id' });
-          }
-          if (!db.objectStoreNames.contains('meta')) {
-            db.createObjectStore('meta', { keyPath: 'id' });
-          }
+          const records = db.objectStoreNames.contains(STORE_NAME)
+            ? e.target.transaction.objectStore(STORE_NAME)
+            : db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          if (!records.indexNames.contains('by_date')) records.createIndex('by_date', 'date', { unique: false });
+          if (!db.objectStoreNames.contains(CONFIG_STORE_NAME)) db.createObjectStore(CONFIG_STORE_NAME, { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'id' });
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error || new Error('IndexedDB could not be opened'));
         req.onblocked = () => reject(new Error('IndexedDB is blocked by another open dashboard window'));
       });
+    }
+
+    function localRecordId(record) {
+      const date = String(record?.iso || parseToISO(record?.date) || '').slice(0, 10);
+      const office = String(record?.solId || record?.officeName || '').trim().toLowerCase();
+      return `${date}__${office}`;
+    }
+    function durableRecord(record) {
+      const copy = {...record};
+      copy.date = String(copy.iso || parseToISO(copy.date) || '').slice(0, 10);
+      copy.id = localRecordId(copy);
+      return copy;
+    }
+    function idbRequest(request) {
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('IndexedDB request failed'));
+      });
+    }
+    function idbTransactionDone(tx) {
+      return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+      });
+    }
+
+    // Replaces only the dates returned by Google.  A normal daily refresh writes
+    // at most the corrected latest date plus new dates, instead of clearing and
+    // inserting the whole 2.4 lakh-row database again.
+    async function saveRemoteDateBatchesToIndexedDB(records, replaceDates) {
+      const list = (Array.isArray(records) ? records : []).map(durableRecord).filter(r => r.id && r.date);
+      const dates = [...new Set((replaceDates || []).filter(Boolean))];
+      const db = await openLocalDB();
+      try {
+        for (const date of dates) {
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const cursor = store.index('by_date').openCursor(IDBKeyRange.only(date));
+            cursor.onsuccess = () => {
+              const item = cursor.result;
+              if (item) { item.delete(); item.continue(); return; }
+              list.filter(row => row.date === date).forEach(row => store.put(row));
+            };
+            cursor.onerror = () => reject(cursor.error || new Error('Could not replace local date batch'));
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
+            tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+          });
+        }
+        return true;
+      } finally { db.close(); }
+    }
+
+    async function getIndexedDBRecordCount() {
+      const db = await openLocalDB();
+      try {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const count = await idbRequest(tx.objectStore(STORE_NAME).count());
+        await idbTransactionDone(tx);
+        return Number(count) || 0;
+      } finally { db.close(); }
+    }
+
+    async function requestPersistentBrowserStorage() {
+      try {
+        if (!navigator.storage || typeof navigator.storage.persist !== 'function') return false;
+        if (typeof navigator.storage.persisted === 'function' && await navigator.storage.persisted()) return true;
+        const granted = await navigator.storage.persist();
+        safeLocalStorageSet('posb_local_db_persistence', granted ? 'granted' : 'best-effort');
+        return !!granted;
+      } catch (err) {
+        console.warn('Persistent browser storage request was unavailable:', err);
+        return false;
+      }
+    }
+
+    async function persistAndVerifyLocalDatabase(records, changedDates) {
+      const rows = Array.isArray(records) ? records : [];
+      const expected = new Set(rows.map(localRecordId).filter(Boolean)).size;
+      if (!expected) throw new Error('No valid DAILY_SUMMARY rows were available for local storage.');
+
+      await requestPersistentBrowserStorage();
+      const beforeWrite = await getIndexedDBRecordCount();
+      // The first download uses one checked transaction for the complete
+      // dataset. Later syncs retain the fast per-date replacement path.
+      if (beforeWrite === 0) {
+        const initialSaved = await saveToIndexedDB(rows, true, true);
+        if (!initialSaved) throw new Error('The browser could not save the initial Google download to its local database.');
+      } else {
+        await saveRemoteDateBatchesToIndexedDB(rows, changedDates);
+      }
+      let stored = await getIndexedDBRecordCount();
+
+      // A partial per-date transaction must never leave the dashboard showing
+      // a false success. Repair with one complete deterministic snapshot, then
+      // verify the persisted count before the UI may say "synced".
+      if (stored < expected) {
+        const repaired = await saveToIndexedDB(rows, true, true);
+        if (!repaired) throw new Error('The browser could not permanently save the downloaded data to its local database.');
+        stored = await getIndexedDBRecordCount();
+      }
+      if (stored < expected) throw new Error(`Local database verification failed (${stored.toLocaleString()}/${expected.toLocaleString()} unique records saved).`);
+
+      safeLocalStorageSet('posb_local_db_verified_rows', String(stored));
+      safeLocalStorageSet('posb_local_db_verified_at', new Date().toISOString());
+      safeLocalStorageSet('posb_local_db_needs_repair', 'false');
+      return stored;
     }
 
     async function saveToIndexedDB(records, overwrite = true, verify = false) {
@@ -5784,7 +5897,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           const tx = db.transaction(STORE_NAME, 'readwrite');
           const store = tx.objectStore(STORE_NAME);
           if (overwrite) store.clear();
-          list.forEach(record => store.add(record));
+          list.forEach(record => store.put(durableRecord(record)));
           tx.oncomplete = resolve;
           tx.onerror = () => reject(tx.error || new Error('IndexedDB write failed'));
           tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
@@ -5827,17 +5940,27 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     }
 
     function loadFromIndexedDB() {
-      return openLocalDB().then(db => new Promise((resolve, reject) => {
-        let settled = false;
-        const finish = (fn, value) => { if (settled) return; settled = true; try { db.close(); } catch (_) {} fn(value); };
-        let tx;
-        try { tx = db.transaction(STORE_NAME, 'readonly'); }
-        catch (err) { finish(reject, err); return; }
-        const req = tx.objectStore(STORE_NAME).getAll();
-        req.onsuccess = () => finish(resolve, req.result || []);
-        req.onerror = () => finish(reject, req.error || new Error('IndexedDB read failed'));
-        tx.onabort = () => finish(reject, tx.error || new Error('IndexedDB read was aborted'));
-      }));
+      return openLocalDB().then(async db => {
+        try {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const current = await idbRequest(tx.objectStore(STORE_NAME).getAll());
+          await idbTransactionDone(tx);
+          if (current.length) return current;
+          // Existing browsers migrate once from the legacy store. New browsers
+          // never create or scan the old store.
+          if (!db.objectStoreNames.contains(LEGACY_STORE_NAME)) return [];
+          const oldTx = db.transaction(LEGACY_STORE_NAME, 'readonly');
+          const legacy = await idbRequest(oldTx.objectStore(LEGACY_STORE_NAME).getAll());
+          await idbTransactionDone(oldTx);
+          if (legacy.length) {
+            const migrateTx = db.transaction(STORE_NAME, 'readwrite');
+            const target = migrateTx.objectStore(STORE_NAME);
+            legacy.forEach(row => target.put(durableRecord(row)));
+            await idbTransactionDone(migrateTx);
+          }
+          return legacy || [];
+        } finally { db.close(); }
+      });
     }
 
     async function verifyBothLocalDatabaseStores(options = {}) {
@@ -5989,6 +6112,11 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       if (!Array.isArray(records)) return records;
       records.forEach(r => {
         if (!r || typeof r !== 'object') return;
+        // HPO and GPO are one combined reporting group across the dashboard.
+        // Keep the source office name intact, but give every calculation and
+        // filter one canonical office-type value.
+        const sourceType = String(r.officeType || '').trim().toUpperCase().replace(/\s+/g, ' ');
+        if (sourceType === 'GPO' || sourceType === 'G.P.O' || sourceType === 'HPO' || sourceType === 'HO' || sourceType === 'HEAD OFFICE') r.officeType = 'HPO';
         const opened = Number(r.opened);
         const closed = Number(r.closed);
         r.opened = Number.isFinite(opened) ? opened : 0;
@@ -6160,6 +6288,9 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     }
 
     function refreshDashboardFromLocalData(statusText) {
+      // A new local snapshot invalidates derived aggregates once. Filter typing
+      // and tab switches reuse that aggregate instead of rebuilding it.
+      window.__posbLocalDataRevision = (window.__posbLocalDataRevision || 0) + 1;
       normalizeTransactionMetrics(rawTransactions);
       updateHeaderLastUpdated();
 
@@ -6208,7 +6339,8 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         badge.className = `portal-status-pill ${state}`;
       }
       if (button) {
-        button.textContent = state === 'offline' ? '↻ Retry Google Sync' : state === 'syncing' ? '⏳ Google Syncing…' : '↻ Refresh Google Sync';
+        button.textContent = state === 'offline' ? '↻ Retry Google Sync' : state === 'syncing' ? '⏳ Google Syncing…' :
+          (!rawTransactions.length ? '⬇ Download Google Data' : '↻ Refresh Google Sync');
         button.disabled = state === 'syncing';
       }
     }
@@ -6254,8 +6386,10 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     function startPortalNetworkMonitor() {
       if (portalNetworkMonitorStarted) return;
       portalNetworkMonitorStarted = true;
-      checkPortalNetworkSpeed();
-      window.setInterval(checkPortalNetworkSpeed, 60000);
+      // Do not probe Apps Script in the background. Network status is checked
+      // immediately before an operator-initiated sync instead.
+      updatePortalNetworkBadge(navigator.onLine ? 'Network: ready' : 'Network: Offline', navigator.onLine ? 'online' : 'offline');
+      if (!rawTransactions.length) updatePortalGoogleConnection('checking', 'local download required');
       window.addEventListener('online', checkPortalNetworkSpeed);
       window.addEventListener('offline', () => {
         updatePortalNetworkBadge('Network: Offline', 'offline');
@@ -6361,11 +6495,16 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       const localRows = getLocalStoreRowCount();
       if (offlineRestoreInProgress) setHeaderLocalSyncStatus('Local: loading', 'busy');
       else if (localRows > 0) setHeaderLocalSyncStatus(`Local: ${localRows.toLocaleString()} records`, 'ok');
-      else setHeaderLocalSyncStatus('Local: empty', 'info');
+        else {
+          setHeaderLocalSyncStatus('Local: empty', 'info');
+          if (!googleSheetSyncInProgress) setHeaderGoogleSyncStatus('Google: local download required', 'info');
+        }
       const localBtn=document.getElementById('dedicatedLocalDbBtn');
       if(localBtn && !offlineRestoreInProgress) localBtn.innerText = `⟳ Local Store • ${localRows.toLocaleString()} records`;
       const dedicatedBtn=document.getElementById('dedicatedGoogleSyncBtn');
-      if(dedicatedBtn && !googleSheetSyncInProgress) dedicatedBtn.innerText = `↻ Google Sync • ${(lastGoogleRecordCount || localRows).toLocaleString('en-IN')} records`;
+      if(dedicatedBtn && !googleSheetSyncInProgress) dedicatedBtn.innerText = localRows
+        ? `↻ Google Sync • ${localRows.toLocaleString('en-IN')} local`
+        : '⬇ Download Google Data';
     }
 
     function updateGoogleSheetButtonState() {
@@ -6561,20 +6700,15 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         const localRecords = await restoreOfflineSnapshot(true);
         const hasLocalRecords = Array.isArray(localRecords) && localRecords.length > 0;
         startPortalNetworkMonitor();
+        const directFile = location.protocol === 'file:';
         setGoogleSheetStatus(hasLocalRecords
-          ? `📦 Local database is active — ${localRecords.length.toLocaleString()} records. Starting Google refresh in the background…`
-          : '📡 Local database is empty. Starting Google sync in the background…');
-        updateViewOnlySyncProgress(5, hasLocalRecords
-          ? `Local DB ready • ${localRecords.length.toLocaleString()} records • Google sync starting…`
-          : 'Local DB checked • no saved records • Google sync starting…', true);
-
-        // Keep the startup loader visible through the complete Google refresh,
-        // local persistence, and dashboard recalculation. The local cache is
-        // already restored, so it remains ready underneath the progress overlay.
-        setDashboardLoading(true, 'Loading latest POSB data from Google Sheets, please wait…', 420);
-        syncFromGoogleSheet({silent:true, background:true, retry404:true, skipLocalRestore:true, dashboardAlreadyRendered:hasLocalRecords})
-          .catch(err => console.warn('Background Google refresh skipped:', err))
-          .finally(() => setDashboardLoading(false));
+          ? `📦 Local database is active — ${localRecords.length.toLocaleString()} records. Google Sheets was not contacted.`
+          : directFile
+            ? '⚠️ Open this dashboard through http://127.0.0.1:8765 (use Start_POSB_Dashboard_Local_Server.cmd), then download once. Direct file:// pages can lose browser local-database storage after refresh.'
+            : 'ℹ️ No local data in this browser. Click “Sync Google Sheet Now” to download the initial dataset.');
+        updateViewOnlySyncProgress(hasLocalRecords ? 100 : 0, hasLocalRecords
+          ? `Local DB ready • ${localRecords.length.toLocaleString()} records • manual sync only`
+          : 'Local DB empty • manual sync required', false);
         return localRecords;
       } catch (err) {
         startPortalNetworkMonitor();
@@ -6626,14 +6760,9 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     function startViewOnlyAutoRefresh() {
       if (viewOnlyAutoRefreshTimer) clearTimeout(viewOnlyAutoRefreshTimer);
       if (viewOnlyCountdownTimer) clearInterval(viewOnlyCountdownTimer);
-      viewOnlyNextRefreshAt = Date.now() + VIEW_ONLY_REFRESH_MS;
+      viewOnlyNextRefreshAt = 0;
       const el = document.getElementById('viewOnlySyncClock');
-      if (el) el.innerText = `Local ${getLocalStoreRowCount().toLocaleString()} • ${fmtElapsed(lastLocalStoreLoadMs)} | Google ${lastGoogleSheetRowCount.toLocaleString()} sheet rows / ${lastGoogleRecordCount.toLocaleString()} records • ${fmtElapsed(lastGoogleSyncMs)}`;
-      // Actually schedule the next authoritative Google refresh.
-      viewOnlyAutoRefreshTimer = setTimeout(() => {
-        syncFromGoogleSheet({silent:true, background:true, retry404:true})
-          .catch(err => console.warn('Scheduled Google Sheet refresh failed:', err));
-      }, VIEW_ONLY_REFRESH_MS);
+      if (el) el.innerText = `Local ${getLocalStoreRowCount().toLocaleString()} records • Google sync runs only when requested`;
     }
 
     function updateViewOnlySyncProgress(percent, detail, active=true) {
@@ -6754,7 +6883,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         await new Promise((resolve,reject)=>{
           const tx=db.transaction(STORE_NAME,'readwrite'),store=tx.objectStore(STORE_NAME);
           store.clear();
-          for(const record of valid) store.add(record);
+          for(const record of valid) store.put(durableRecord(record));
           tx.oncomplete=resolve;
           tx.onerror=()=>reject(tx.error||new Error('IndexedDB restore failed; transaction was rolled back.'));
           tx.onabort=()=>reject(tx.error||new Error('IndexedDB restore was aborted; transaction was rolled back.'));
@@ -6842,8 +6971,17 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       googleSheetSyncInProgress = true;
       updatePortalGoogleConnection('syncing');
       updateGoogleSheetButtonState();
+      // Manual Google sync always gets a visible, percentage-based progress
+      // dialog. This is deliberately not started by background timers.
+      setDashboardLoading(true, 'Downloading Google Sheet data to the local database…', 0);
+      updateViewOnlySyncProgress(2, 'Starting Google Sheet sync • checking local database and configuration…', true);
       const syncStartedAt = Date.now();
       let syncProgressTimer = null;
+      const estimateRemaining = (received, total) => {
+        if (!received || !total || received >= total) return 'less than a minute';
+        const elapsed = Math.max(1, Date.now() - syncStartedAt);
+        return `about ${fmtElapsed(elapsed * (total - received) / received)} remaining`;
+      };
 
       const fetchJson = async (url, timeoutMs = POSB_BACKEND_TIMEOUT_MS) => {
         if (!GOOGLE_SHEET_SCRIPT_URL || GOOGLE_SHEET_SCRIPT_URL.includes('PASTE_NEW_POSB_BACKEND')) {
@@ -6880,6 +7018,11 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           try { await restoreOfflineSnapshot(true); } catch (_) {}
         }
 
+        // restoreOfflineSnapshot owns and closes its own local-load overlay.
+        // Re-open the Google-sync overlay immediately afterwards so a first
+        // browser download never looks like it has stopped.
+        setDashboardLoading(true, 'Downloading Google Sheet data to the local database…', 0);
+
         const localRecordsBefore = Array.isArray(rawTransactions) ? rawTransactions.slice() : [];
         const localLatestDate = getLatestDataISO(localRecordsBefore) || '';
         const force = options.force === true;
@@ -6895,7 +7038,14 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         }
 
         const base = GOOGLE_SHEET_SCRIPT_URL;
-        const meta = await fetchJson(`${base}?action=meta&_=${Date.now()}`);
+        // First-time downloads must not wait for a full 2.4 lakh-row change
+        // index. Get light metadata first, then use the date manifest only
+        // when this browser already has a local data set to compare against.
+        let meta = await fetchJson(`${base}?action=meta&_=${Date.now()}`);
+        if (localRecordsBefore.length) {
+          try { meta = await fetchJson(`${base}?action=manifest&_=${Date.now()}`); }
+          catch (_) { /* Older backend: fall back to latest-date incremental sync. */ }
+        }
 
         const sourceUpdatedAt = String(meta.lastUpdated || meta.updatedAt || meta.sourceUpdatedAt || '');
         const googleLatestRaw = meta.latestDate || meta.latestTransactionDate || meta.dataTo || meta.lastTransactionDate || '';
@@ -6908,10 +7058,19 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         );
 
         const localDataVersion = String(safeLocalStorageGet('posb_backend_data_version') || '');
+        const remoteDateBatches = Array.isArray(meta.dateBatches) ? meta.dateBatches : [];
+        let localDateRevisions = {};
+        try { localDateRevisions = JSON.parse(safeLocalStorageGet('posb_backend_date_revisions') || '{}') || {}; } catch (_) {}
+        const changedDateBatches = remoteDateBatches.filter(batch =>
+          force || String(localDateRevisions[batch.date] || '') !== String(batch.revision || '')
+        );
+        const changedDateList = changedDateBatches.map(batch => batch.date).filter(Boolean);
         const summaryRows = Number(meta.summaryRows || meta.dailySummaryRows || meta.totalRows || 0);
         const localRowCountMatchesBackend = summaryRows > 0 && localRecordsBefore.length === summaryRows;
         const localLatestMatchesBackend = !!googleLatestDate && !!localLatestDate && localLatestDate === googleLatestDate;
-        const localCacheComplete = localRowCountMatchesBackend && localLatestMatchesBackend;
+        const localCacheComplete = remoteDateBatches.length
+          ? (localRecordsBefore.length === summaryRows && changedDateList.length === 0)
+          : (localRowCountMatchesBackend && localLatestMatchesBackend);
 
         lastGoogleSheetRowCount = summaryRows;
         lastGoogleRecordCount = localRecordsBefore.length;
@@ -6934,8 +7093,10 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           });
           remoteConfig = mapped;
         }
+        remoteConfig = normalizeRemoteDashboardConfig(remoteConfig);
         if (remoteConfig && typeof remoteConfig === 'object') {
           try {
+            updateViewOnlySyncProgress(8, 'Google configuration received • loading targets, campaigns and monitoring teams…', true);
             await saveDashboardConfigToIndexedDB({
               ...remoteConfig,
               __sourceSheet: POSB_BACKEND_CONFIG_SHEET,
@@ -6946,10 +7107,37 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           } catch (_) {}
         }
 
+        // The compact CONFIG payload is the source of all dashboard settings.
+        // MONITORING is also read as a safe reference fallback for deployments
+        // that pre-date the nested monitoring-team config format.
+        try {
+          updateViewOnlySyncProgress(10, 'Loading monitoring-team reference details…', true);
+          let monitoringOffset = 0, monitoringDone = false, monitoringHeaders = [], monitoringRows = [];
+          while (!monitoringDone) {
+            const monitoring = await fetchJson(`${base}?action=reference&sheet=MONITORING&offset=${monitoringOffset}&limit=5000&_=${Date.now()}`);
+            if (!monitoringHeaders.length) monitoringHeaders = Array.isArray(monitoring.headers) ? monitoring.headers : [];
+            const pageRows = Array.isArray(monitoring.rows) ? monitoring.rows : [];
+            monitoringRows.push(...pageRows);
+            const next = Number(monitoring.nextOffset);
+            monitoringDone = monitoring.done === true || monitoring.hasMore === false || !pageRows.length || !Number.isFinite(next) || next <= monitoringOffset;
+            monitoringOffset = Number.isFinite(next) ? next : monitoringOffset + pageRows.length;
+          }
+          const restoredTeams = mergeMonitoringReferenceRows(monitoringHeaders, monitoringRows);
+          if (restoredTeams) {
+            await persistOfficeContactConfig();
+            updateViewOnlySyncProgress(12, `Configuration ready • targets, special drives/campaigns and ${restoredTeams.toLocaleString()} monitoring-team record(s) loaded.`, true);
+          } else {
+            updateViewOnlySyncProgress(12, 'Configuration ready • targets, special drives/campaigns and monitoring settings loaded.', true);
+          }
+        } catch (referenceError) {
+          console.warn('Monitoring reference sync skipped:', referenceError);
+          updateViewOnlySyncProgress(12, 'Configuration ready • targets and special drives/campaigns loaded; using saved monitoring-team cache.', true);
+        }
+
         // Reuse the fast path only when the version, DAILY_SUMMARY row count,
         // and latest transaction date all agree. A version match alone can
         // leave a partial or stale local cache looking current.
-        if (!force && localCacheComplete && localDataVersion && localDataVersion === dataVersion) {
+        if (!force && localCacheComplete && (remoteDateBatches.length || (localDataVersion && localDataVersion === dataVersion))) {
           lastGoogleRecordCount = localRecordsBefore.length;
           lastGoogleSyncMs = Date.now() - syncStartedAt;
           try { markGoogleSheetLastSync(); } catch (_) {}
@@ -6963,7 +7151,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           );
           updateViewOnlySyncProgress(
             100,
-            `Backend current • ${localRecordsBefore.length.toLocaleString()} summary rows remain active • 30-second polling`,
+            `Backend current • ${localRecordsBefore.length.toLocaleString()} summary rows remain active • local database is ready`,
             false
           );
           startViewOnlyAutoRefresh();
@@ -6973,11 +7161,12 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         // If counts disagree, reconcile the full FY so gaps in older dates are
         // repaired too. When only the latest date differs, re-fetch from the
         // local latest date so that date's corrections and newer rows are included.
-        const fromDate = options.fromDate ||
-          (localRecordsBefore.length && localRowCountMatchesBackend
-            ? (localLatestDate || POSB_BACKEND_FY_START)
-            : POSB_BACKEND_FY_START);
-        const toDate = options.toDate || googleLatestDate || localLatestDate || POSB_BACKEND_FY_START;
+        // Normal sync is append/correction only: read the local latest date
+        // (to capture a correction) and later dates.  A complete repair remains
+        // available with {force:true}; row-count differences alone must never
+        // trigger a full financial-year re-download.
+        const fromDate = options.fromDate || (changedDateList.length ? changedDateList[0] : (force ? POSB_BACKEND_FY_START : (localLatestDate || POSB_BACKEND_FY_START)));
+        const toDate = options.toDate || (changedDateList.length ? changedDateList[changedDateList.length - 1] : (googleLatestDate || localLatestDate || POSB_BACKEND_FY_START));
 
         if (fromDate && toDate && fromDate > toDate) {
           safeLocalStorageSet('posb_backend_data_version', dataVersion);
@@ -7024,8 +7213,10 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
             const url =
               `${base}?action=data` +
               `&sheet=${encodeURIComponent(POSB_BACKEND_SUMMARY_SHEET)}` +
+               (localRecordsBefore.length === 0 ? '&all=1' : '') +
               `&fromDate=${encodeURIComponent(fromDate)}` +
               `&toDate=${encodeURIComponent(toDate)}` +
+               (changedDateList.length ? `&dates=${encodeURIComponent(changedDateList.join(','))}` : '') +
               `&offset=${pageOffset}` +
               `&limit=${POSB_BACKEND_PAGE_SIZE}` +
               `&_=${Date.now()}_${pageNumber}`;
@@ -7058,7 +7249,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
               : Math.min(99, 10 + Math.min(85, page * 5));
             updateViewOnlySyncProgress(
               pct,
-              `Downloading DAILY_SUMMARY • page ${pageNumber} • ${received.toLocaleString()}${totalExpected ? ` / ${totalExpected.toLocaleString()}` : ''} office/date rows • raw transaction shards untouched`,
+              `Downloading DAILY_SUMMARY • page ${pageNumber} • ${received.toLocaleString()}${totalExpected ? ` / ${totalExpected.toLocaleString()}` : ''} office/date rows • ${estimateRemaining(received, totalExpected)} • raw transaction shards untouched`,
               true
             );
             if (!rows.length && !chunkDone) throw new Error('Backend returned an empty page without a completion marker.');
@@ -7075,10 +7266,11 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 
         // Date-level replacement: corrections for an existing date replace
         // that date's summary rows. There is NO record-by-record comparison.
+        const datesBeingReplaced = new Set(changedDateList.length ? changedDateList : incoming.map(r => String(r.iso || parseToISO(r.date) || '').slice(0,10)));
         const retained = localRecordsBefore.filter(r => {
           const iso = r.iso || parseToISO(r.date) || '';
           if (!iso) return true;
-          return !(iso >= fromDate && iso <= toDate);
+          return !datesBeingReplaced.has(iso);
         });
 
         rawTransactions = retained.concat(incoming);
@@ -7095,10 +7287,13 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           safeLocalStorageSet('posb_google_record_count', String(lastGoogleRecordCount));
           safeLocalStorageSet('posb_google_sheet_remote_rows', String(summaryRows));
           safeLocalStorageSet('posb_google_sheet_signature', dataVersion);
+          if (remoteDateBatches.length) safeLocalStorageSet('posb_backend_date_revisions', JSON.stringify(Object.fromEntries(remoteDateBatches.map(b => [b.date, b.revision]))));
           if (googleLatestDate) safeLocalStorageSet('posb_google_sheet_latest_date', googleLatestDate);
         } catch (_) {}
 
-        await saveToIndexedDB(rawTransactions, true, false);
+        const changedDates = [...new Set(incoming.map(r => String(r.iso || parseToISO(r.date) || '').slice(0,10)).filter(Boolean))];
+        updateViewOnlySyncProgress(99, `Download complete • permanently saving ${rawTransactions.length.toLocaleString()} rows to this browser’s local database…`, true);
+        const localVerifiedRows = await persistAndVerifyLocalDatabase(rawTransactions, changedDates);
 
         const latestDate = getLatestDataISO(rawTransactions);
         if (latestDate) {
@@ -7116,12 +7311,12 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         const stamp = formatSyncStamp(new Date().toISOString());
         setGoogleSheetStatus(
           `✅ New POSB backend synced • ${stamp} • ${incoming.length.toLocaleString()} DAILY_SUMMARY rows refreshed for ${formatDateDMY(fromDate)}–${formatDateDMY(toDate)} • ` +
-          `${rawTransactions.length.toLocaleString()} summary rows cached • raw 15-lakh shard data was NOT downloaded • ${fmtElapsed(lastGoogleSyncMs)}`
+          `${localVerifiedRows.toLocaleString()} records permanently saved in this browser’s local database • raw 15-lakh shard data was NOT downloaded • ${fmtElapsed(lastGoogleSyncMs)}`
         );
         updatePortalGoogleConnection('online');
         updateViewOnlySyncProgress(
           100,
-          `Complete • ${rawTransactions.length.toLocaleString()} DAILY_SUMMARY rows • backend version ${dataVersion} • 30-second polling`,
+          `Complete • ${localVerifiedRows.toLocaleString()} local database records verified and ready after refresh`,
           false
         );
 
@@ -7143,6 +7338,9 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         throw err;
       } finally {
         if (syncProgressTimer) clearInterval(syncProgressTimer);
+        // Leave the completed percentage visible briefly, then close the
+        // progress popup regardless of success or failure.
+        setTimeout(() => setDashboardLoading(false), 650);
         googleSheetSyncInProgress = false;
         updateGoogleSheetButtonState();
       }
@@ -7332,6 +7530,42 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       const sos = [...new Set(pool.map(r => r.soName))].filter(Boolean).sort();
       subDnSo.innerHTML = `<option value="ALL">All SOs (${sos.length})</option>`;
       sos.forEach(so => { subDnSo.innerHTML += `<option value="${so}">${so}</option>`; });
+      populateSubDnOfficeSelect();
+      renderSubDnMonitoringTable();
+    }
+
+    function populateSubDnOfficeSelect() {
+      const officeSelect = document.getElementById('subDnOfficeSelect');
+      if (!officeSelect) return;
+      const selected = officeSelect.value || 'ALL';
+      const selDiv = document.getElementById('subDnDivSelect')?.value || 'ALL';
+      const selSub = document.getElementById('subDnSubSelect')?.value || 'ALL';
+      const selType = document.getElementById('subDnTypeSelect')?.value || 'ALL';
+      const selSo = document.getElementById('subDnSoSelect')?.value || 'ALL';
+      const offices = new Map();
+      (rawTransactions || []).forEach(r => {
+        const type = officeCountType(r);
+        if (selDiv !== 'ALL' && r.division !== selDiv) return;
+        if (selSub !== 'ALL' && r.subDivision !== selSub) return;
+        if (selType !== 'ALL' && type !== selType) return;
+        if (selSo !== 'ALL' && r.soName !== selSo) return;
+        const key = canonicalOfficeKey(r);
+        if (!offices.has(key)) offices.set(key, { name:String(r.officeName || '-'), sol:String(r.solId || '') });
+      });
+      const list = [...offices.entries()].sort((a,b) => a[1].name.localeCompare(b[1].name) || a[1].sol.localeCompare(b[1].sol));
+      officeSelect.innerHTML = `<option value="ALL">All Offices / SOL IDs (${list.length})</option>` + list.map(([key,o]) => `<option value="${weeklyEsc(key)}">${weeklyEsc(o.name)}${o.sol ? ` • ${weeklyEsc(o.sol)}` : ''}</option>`).join('');
+      officeSelect.value = list.some(([key]) => key === selected) ? selected : 'ALL';
+    }
+
+    function resetSubDnFilters() {
+      const ids = ['subDnDivSelect','subDnSubSelect','subDnTypeSelect','subDnSoSelect','subDnOfficeSelect','subDnMonthSelect'];
+      ids.forEach(id => { const el=document.getElementById(id); if(el) el.value='ALL'; });
+      const from=document.getElementById('subDnFromDate'), to=document.getElementById('subDnToDate');
+      if (from) { from.value=TARGET_FY_START; delete from.dataset.userSet; }
+      if (to) { to.value=''; delete to.dataset.userSet; }
+      populateSubDnDateFilters();
+      onSubDnDivisionChange();
+      populateSubDnOfficeSelect();
       renderSubDnMonitoringTable();
     }
 
@@ -7365,6 +7599,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     let dashboardLoadingStartedAt = 0;
     let dashboardLoadingDownloadStartedAt = 0;
     let dashboardLoadingCurrentPct = 0;
+    let dashboardLoadingExpectedMs = 45000;
     function formatApproxWait(ms) {
       const seconds = Math.max(1, Math.ceil(Number(ms || 0) / 1000));
       if (seconds < 60) return `about ${seconds} sec`;
@@ -7404,8 +7639,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         const downloadedPct = pct - 10;
         estimateMs = (elapsedMs / downloadedPct) * Math.max(0, 100 - pct);
       } else {
-        const previousSyncMs = Number(safeLocalStorageGet('posb_google_sync_ms') || 0);
-        estimateMs = previousSyncMs > 0 ? previousSyncMs : 45000;
+        estimateMs = dashboardLoadingExpectedMs || 45000;
         estimateMs *= Math.max(0.15, (100 - pct) / 100);
       }
       const elapsedSeconds = dashboardLoadingStartedAt ? Math.floor((Date.now() - dashboardLoadingStartedAt) / 1000) : 0;
@@ -7425,6 +7659,9 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         return;
       }
       if (label) label.textContent = message;
+      const isLocalLoad = /local (browser )?database|local store/i.test(message);
+      const knownDuration = Number(safeLocalStorageGet(isLocalLoad ? 'posb_local_store_load_ms' : 'posb_google_sync_ms') || 0);
+      dashboardLoadingExpectedMs = knownDuration > 0 ? knownDuration : (isLocalLoad ? 15000 : 45000);
       dashboardLoadingStartedAt = Date.now();
       dashboardLoadingDownloadStartedAt = 0;
       dashboardLoadingCurrentPct = 0;
@@ -7435,7 +7672,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       const detailEl = document.getElementById('dashboardLoadingDetail');
       if (detailEl) detailEl.textContent = /google/i.test(message) ? 'Connecting to Google Sheets…' : 'Preparing dashboard view…';
       const etaEl = document.getElementById('dashboardLoadingEstimate');
-      if (etaEl) etaEl.textContent = `Approx. wait: ${formatApproxWait(Number(safeLocalStorageGet('posb_google_sync_ms') || 45000))} • connecting`;
+      if (etaEl) etaEl.textContent = `Approx. wait: ${formatApproxWait(dashboardLoadingExpectedMs)} • connecting`;
       dashboardLoadingTimer = window.setTimeout(() => {
         overlay.hidden = false;
         requestAnimationFrame(() => {
@@ -7574,7 +7811,10 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       renderDaywiseModule();
     }
 
+    let consolidatedOfficeDataRevision = -1;
     function consolidateOffices() {
+      const revision = `${window.__posbLocalDataRevision || 0}:${rawTransactions.length}`;
+      if (consolidatedOfficeDataRevision === revision && currentConsolidatedOffices.length) return;
       const officeMap = new Map();
       rawTransactions.forEach(r => {
         const uniqueKey = canonicalOfficeKey(r);
@@ -7617,6 +7857,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         obj.net += r.net;
       });
       currentConsolidatedOffices = Array.from(officeMap.values()).sort((a, b) => b.net - a.net);
+      consolidatedOfficeDataRevision = revision;
       populateOfficeDirectoryFilters();
     }
 
@@ -8691,12 +8932,12 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
       const n = String(r.officeName || '').trim().toUpperCase();
       const so = String(r.soName || '').trim().toUpperCase();
 
-      if (explicit === 'GPO' || explicit === 'G.P.O') return 'GPO';
+      if (explicit === 'GPO' || explicit === 'G.P.O') return 'HPO';
       if (explicit === 'HPO' || explicit === 'HO' || explicit === 'HEAD OFFICE') return 'HPO';
       if (explicit === 'SPO' || explicit === 'SO') return 'SPO';
       if (explicit === 'BPO' || explicit === 'BO') return 'BPO';
 
-      if (n.includes('G.P.O') || n.includes('GPO')) return 'GPO';
+      if (n.includes('G.P.O') || n.includes('GPO')) return 'HPO';
       if (n.includes('HEAD OFFICE') || n.endsWith(' H.O') || n.endsWith(' HO')) return 'HPO';
       if (n === so || n.includes('SUB OFFICE') || n.endsWith(' S.O') || n.endsWith(' SO')) return 'SPO';
       return 'BPO';
@@ -8733,6 +8974,8 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
     // Registries rebuilt on every render, used to resolve click-to-popup
     // lookups without re-serializing office data into HTML attributes.
     let weeklyOfficeIndex = new Map();
+    let weeklyOfficeGroups = new Map();
+    let weeklyOfficeGroupSeq = 0;
     let weeklyShortfallGroups = new Map();
     let weeklyShortfallGroupSeq = 0;
 
@@ -8802,6 +9045,14 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
 
       let shortfallAttr = '';
       let shortfallClass = 'weekly-muted';
+      let officeCountAttr = '';
+      let officeCountClass = '';
+      if (count > 0) {
+        const groupId = `wog_${weeklyOfficeGroupSeq++}`;
+        weeklyOfficeGroups.set(groupId, { label: `${groupLabel} — ${typeLabel}`, items:items.slice() });
+        officeCountAttr = ` data-office-group="${groupId}" role="button" tabindex="0" onclick="openWeeklyOfficeGroupModal('${groupId}')" title="Click to view office report"`;
+        officeCountClass = 'weekly-link';
+      }
       if (failCount > 0) {
         const groupId = `wsg_${weeklyShortfallGroupSeq++}`;
         weeklyShortfallGroups.set(groupId, { label: `${groupLabel} — ${typeLabel}`, items: failItems });
@@ -8810,7 +9061,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
       }
 
       return `
-        <td class="num">${count}</td>
+        <td class="num ${officeCountClass}"${officeCountAttr}>${count}</td>
         <td class="num ${shortfallClass}"${shortfallAttr}>${failCount}</td>
         <td class="num">${weeklyNum(target)}</td>
         <td class="num">${weeklyNum(achievement)}</td>
@@ -8977,6 +9228,8 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
 
       // Reset the click-to-popup registries before re-rendering.
       weeklyOfficeIndex = new Map();
+      weeklyOfficeGroups = new Map();
+      weeklyOfficeGroupSeq = 0;
       weeklyShortfallGroups = new Map();
       weeklyShortfallGroupSeq = 0;
 
@@ -9006,8 +9259,6 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
 
       renderWeeklySummaryTable(offices,'division','weeklyDivisionBody');
       renderWeeklySummaryTable(offices,'subDivision','weeklySubDivisionBody');
-      renderWeeklyHoSummary(offices);
-      renderWeeklyFailureList(offices);
     }
 
     // ---- Office / shortfall popup modal ----
@@ -9066,6 +9317,17 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
       openWeeklyModal(o.officeName, rowsHtml, o.officeName, o.solId, o.type);
     }
 
+    function openWeeklyOfficeGroupModal(groupId) {
+      const group = weeklyOfficeGroups.get(groupId);
+      if (!group || !group.items?.length) return;
+      const rows = group.items.slice().sort((a,b) => String(a.officeName).localeCompare(String(b.officeName))).map(o => {
+        const remark = o.achieved ? 'Target Achieved' : 'Target Not Achieved';
+        return `<tr class="weekly-office-link" data-office-key="${weeklyEsc(o.key)}"><td class="left office-name-link" data-office-name="${weeklyEsc(o.officeName)}" data-sol-id="${weeklyEsc(o.solId||'')}"><strong>${weeklyEsc(o.officeName)}</strong></td><td class="left"><strong>${weeklyEsc(o.solId||'-')}</strong></td><td>${weeklyEsc(o.type)}</td><td class="left">${weeklyEsc(o.division)}</td><td class="left">${weeklyEsc(o.subDivision)}</td><td class="num">${weeklyNum(o.target)}</td><td class="num">${weeklyNum(o.achievement)}</td><td class="num ${o.shortfall>0?'weekly-bad':'weekly-good'}">${weeklyNum(Math.max(0,o.shortfall))}</td><td class="num ${o.achieved?'weekly-good':'weekly-bad'}">${weeklyPct(o.percent)}</td><td><span class="weekly-status ${o.achieved?'pass':'fail'}">${remark}</span></td></tr>`;
+      }).join('');
+      const html = `<div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-bottom:10px;"><button type="button" class="btn-action btn-pdf-report" onclick="exportReportTableToPDF('weeklyOfficeGroupModalTable','Weekly_Office_Report')">📄 Export PDF</button><button type="button" class="btn-action btn-excel" onclick="downloadTableAsExcel('weeklyOfficeGroupModalTable','Weekly_Office_Report')">📥 Download Excel</button></div><table class="weekly-modal-list-table" id="weeklyOfficeGroupModalTable"><thead><tr><th class="left">Office</th><th class="left">SOL ID</th><th>Type</th><th class="left">Division</th><th class="left">Sub Division</th><th>Target</th><th>Achievement</th><th>Shortfall</th><th>% Achievement</th><th>Remark</th></tr></thead><tbody>${rows}</tbody></table><p class="weekly-muted" style="margin-top:8px;">Click a row to see full office detail.</p>`;
+      openWeeklyModal(`Office Report — ${group.label} (${group.items.length})`, html);
+    }
+
     function openWeeklyShortfallModal(groupId) {
       const group = weeklyShortfallGroups.get(groupId);
       if (!group) return;
@@ -9083,6 +9345,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
           <td class="num">${weeklyNum(o.target)}</td>
           <td class="num">${weeklyNum(o.achievement)}</td>
           <td class="num weekly-bad">${weeklyNum(Math.max(0, o.shortfall))}</td>
+          <td><span class="weekly-status fail">Target Not Achieved</span></td>
         </tr>`).join('');
       const html = `
         <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
@@ -9090,7 +9353,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
           <button type="button" class="btn-action btn-excel" onclick="downloadWeeklyShortfallExcel('${groupId}')">📥 Download Excel</button>
         </div>
         <table class="weekly-modal-list-table" id="weeklyShortfallModalTable">
-          <thead><tr><th class="left">Office</th><th class="left">SOL ID</th><th class="left">Division</th><th class="left">Sub Division</th><th>Target</th><th>Achievement</th><th>Shortfall</th></tr></thead>
+          <thead><tr><th class="left">Office</th><th class="left">SOL ID</th><th class="left">Division</th><th class="left">Sub Division</th><th>Target</th><th>Achievement</th><th>Shortfall</th><th>Remark</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <p class="weekly-muted" style="margin-top:8px;">Click a row to see full office detail.</p>`;
@@ -9109,7 +9372,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
      * This is intentionally separate from the generic table exporter so
      * weekly popup exports retain the selected period and subsection.
      */
-    function downloadWeeklyShortfallExcel(groupId) {
+    async function downloadWeeklyShortfallExcel(groupId) {
       const group = weeklyShortfallGroups.get(groupId);
       if (!group || !group.items || !group.items.length) {
         alert('No shortfall office data is available for export.');
@@ -9136,7 +9399,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
         ['Sub Section', subSection],
         ['Period of Selection', period],
         [],
-        ['Office', 'Division', 'Sub Division', 'Target', 'Achievement', 'Shortfall']
+        ['Office', 'Division', 'Sub Division', 'Target', 'Achievement', 'Shortfall', 'Remark']
       ];
 
       sorted.forEach(o => {
@@ -9146,7 +9409,8 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
           o.subDivision || '-',
           Number(o.target) || 0,
           Number(o.achievement) || 0,
-          Number(o.shortfall) || 0
+          Number(o.shortfall) || 0,
+          'Target Not Achieved'
         ]);
       });
 
@@ -9158,58 +9422,51 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
       const filename = `Weekly_Monitoring_${safeName}_${dateStamp}`;
       const xlsxAvailable = typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile;
 
+      // ExcelJS enables the same India Post logo used by all other XLSX exports.
+      if (typeof ExcelJS !== 'undefined') {
+        try {
+          const wb = new ExcelJS.Workbook();
+          const ws = wb.addWorksheet('Shortfall Offices', { views:[{state:'frozen', ySplit:6}] });
+          rows.forEach((row,index) => ws.addRow(row));
+          ws.mergeCells('A1:G1');
+          ws.getCell('A1').font = {bold:true,size:14};
+          ws.getCell('A1').alignment = {horizontal:'center',vertical:'middle',wrapText:true};
+          ws.getRow(1).height = 28;
+          const logo = await getIndiaPostLogoBase64();
+          if (logo) { const imageId=wb.addImage({base64:logo,extension:'png'}); ws.addImage(imageId,{tl:{col:6,row:0},ext:{width:82,height:54}}); }
+          [30,24,25,14,16,14,24].forEach((width,i)=>ws.getColumn(i+1).width=width);
+          const border={top:{style:'thin',color:{argb:'FF9AA7A1'}},bottom:{style:'thin',color:{argb:'FF9AA7A1'}},left:{style:'thin',color:{argb:'FF9AA7A1'}},right:{style:'thin',color:{argb:'FF9AA7A1'}}};
+          ws.eachRow((row,rowNumber)=>row.eachCell({includeEmpty:true},cell=>{
+            cell.border=border; cell.alignment={vertical:'middle',wrapText:true,horizontal:rowNumber===1?'center':(rowNumber===6?'center':'left')};
+            if(rowNumber===1) cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFDFF3EC'}};
+            if(rowNumber===6) { cell.font={bold:true}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8F6F0'}}; }
+            if(rowNumber>=7 && cell.col>=4) { cell.alignment={vertical:'middle',horizontal:'right'}; cell.numFmt='#,##0'; }
+          }));
+          const blob=await wb.xlsx.writeBuffer(); const url=URL.createObjectURL(new Blob([blob],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+          const link=document.createElement('a'); link.href=url; link.download=`${filename}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);
+          return;
+        } catch (err) { console.warn('Weekly shortfall branded Excel export fallback:',err); }
+      }
+
       if (!xlsxAvailable) {
-        // Offline/CDN fallback: create an Excel-compatible .xls file.
-        const escHtml = v => String(v ?? '')
-          .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-          .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        const colCount = 6;
-        const bodyRows = rows.map((r, ri) => {
-          if (ri === 0) {
-            return `<tr><td colspan="${colCount}" class="title">${escHtml(r[0])}</td></tr>`;
-          }
-          if (ri === 4) return `<tr><td colspan="${colCount}" style="height:8px;border:0;"></td></tr>`;
-          const isHeader = ri === 5;
-          return `<tr>${Array.from({length:colCount}, (_,ci) => {
-            const v = r[ci] ?? '';
-            const cls = isHeader ? 'head' : (ri >= 6 && ci >= 3 ? 'num' : '');
-            return `<td class="${cls}">${escHtml(v)}</td>`;
-          }).join('')}</tr>`;
-        }).join('');
-        const xls = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-          body{font-family:Calibri,Arial,sans-serif;font-size:11pt}
-          table{border-collapse:collapse;width:100%}
-          td{border:1px solid #9AA7A1;padding:6px 8px;vertical-align:middle}
-          .title{font-weight:bold;font-size:14pt;background:#DFF3EC;text-align:left}
-          .head{font-weight:bold;text-align:center;background:#E8F6F0}
-          .num{text-align:right;mso-number-format:"#,##0"}
-        </style></head><body><table>${bodyRows}</table></body></html>`;
-        const blob = new Blob([xls], {type:'application/vnd.ms-excel;charset=utf-8'});
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${filename}.xls`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        downloadSimpleXlsx(rows, filename, 'Shortfall Offices', [{s:{r:0,c:0},e:{r:0,c:6}}], [5]);
         return;
       }
 
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!merges'] = [
-        {s:{r:0,c:0}, e:{r:0,c:5}}
+        {s:{r:0,c:0}, e:{r:0,c:6}}
       ];
       ws['!cols'] = [
         {wch:30}, {wch:24}, {wch:25},
-        {wch:14}, {wch:16}, {wch:14}
+        {wch:14}, {wch:16}, {wch:14}, {wch:24}
       ];
       ws['!rows'] = [
         {hpt:28}, {hpt:20}, {hpt:20}, {hpt:20}, {hpt:8}, {hpt:30}
       ];
       ws['!freeze'] = {xSplit:0, ySplit:6};
-      ws['!autofilter'] = {ref:`A6:F${rows.length}`};
+      ws['!autofilter'] = {ref:`A6:G${rows.length}`};
 
       const border = {
         top:{style:'thin',color:{rgb:'9AA7A1'}},
@@ -9269,6 +9526,8 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
     document.addEventListener('click', function(e) {
       const shortfallCell = e.target.closest('[data-shortfall-group]');
       if (shortfallCell) { openWeeklyShortfallModal(shortfallCell.getAttribute('data-shortfall-group')); return; }
+      const officeGroupCell = e.target.closest('[data-office-group]');
+      if (officeGroupCell) { openWeeklyOfficeGroupModal(officeGroupCell.getAttribute('data-office-group')); return; }
       const officeRow = e.target.closest('[data-office-key]');
       if (officeRow) { openWeeklyOfficeModal(officeRow.getAttribute('data-office-key')); return; }
       const nilGroupCell = e.target.closest('[data-nil-group]');
@@ -9287,7 +9546,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
 
     function officeCountType(r) {
       const explicit = String(r.officeType || '').trim().toUpperCase().replace(/\s+/g,' ');
-      if (explicit.includes('GPO')) return 'GPO';
+      if (explicit.includes('GPO')) return 'HPO';
       if (explicit.includes('HPO') || explicit === 'HO' || explicit.includes('HEAD OFFICE')) return 'HPO';
       if (explicit.includes('SPO') || explicit === 'SO' || explicit.includes('SUB OFFICE')) return 'SPO';
       if (explicit.includes('BPO') || explicit === 'BO' || explicit.includes('BRANCH OFFICE')) return 'BPO';
@@ -10063,7 +10322,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
     function populateTargetReportOfficeTypes(baseRows) {
       const el = document.getElementById('targetReportOfficeTypeSelect'); if (!el) return;
       const old = el.value || 'ALL';
-      const vals = ['HPO_GPO','HPO','GPO','SPO','BPO'];
+      const vals = ['HPO_GPO','SPO','BPO'];
       el.innerHTML = `<option value="ALL">All Office Types</option>` + vals.map(v => `<option value="${v}">${v === 'HPO_GPO' ? 'HPO / GPO' : v}</option>`).join('');
       el.value = vals.includes(old) ? old : 'ALL';
     }
@@ -11202,7 +11461,7 @@ const WEEKLY_ANCHOR_START = '2026-04-01';
 <style>
 @page{size:A4 landscape;margin:9mm 8mm 11mm 8mm;}
 *{box-sizing:border-box;}
-html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Arial,Helvetica,sans-serif;}
+html,body{margin:0;padding:0;background:#fff;color:#111827;font-family:Arial,Helvetica,sans-serif;font-weight:700;}
 body{font-size:9px;}
 .report-header{border-bottom:2px solid #0f172a;padding:0 0 7px;margin-bottom:7px;position:relative;min-height:58px;padding-right:95px;}
 .report-logo{position:absolute;right:0;top:0;width:82px;height:54px;object-fit:contain;}
@@ -11214,11 +11473,11 @@ body{font-size:9px;}
 .criteria{display:flex;flex-wrap:wrap;gap:3px 5px;margin:5px 0 7px;}
 .criterion{border:1px solid #cbd5e1;background:#f8fafc;border-radius:3px;padding:2px 5px;font-size:7.5px;font-weight:700;}
 .export-section-title{background:#9e3434;color:#fff;font-weight:900;padding:6px 7px;margin:7px 0 4px;border:1px solid #6f2323;page-break-after:avoid;}
-table{width:100%;border-collapse:collapse;table-layout:auto;page-break-inside:auto;margin:0 0 8px;}
+table{width:100%;border-collapse:collapse;table-layout:fixed;page-break-inside:auto;margin:0 0 8px;}
 thead{display:table-header-group;}
 tr{page-break-inside:avoid;page-break-after:auto;}
 th{background:#9e3434!important;color:#fff!important;font-weight:900;text-align:center;border:1px solid #6f2323;padding:4px 5px;white-space:normal;line-height:1.15;}
-td{border:1px solid #cbd5e1;padding:3px 5px;vertical-align:middle;text-align:center;}
+td{border:1px solid #94a3b8;padding:3px 5px;vertical-align:middle;text-align:center;font-weight:700;white-space:normal;overflow-wrap:anywhere;word-break:break-word;}
 .report-footer{margin-top:6px;padding-top:4px;border-top:1px solid #cbd5e1;font-size:7.5px;color:#64748b;text-align:center;}
 @media print{.no-print{display:none!important;}}
 </style></head><body>
@@ -12001,6 +12260,13 @@ ${cleanTable(p2)}
       } else {
         grid.innerHTML = cards.map(renderCard).join('');
       }
+      const exportBody = document.getElementById('subDnTopOfficeExportBody');
+      if (exportBody) {
+        exportBody.innerHTML = cards.length ? cards.map(o => {
+          const short = o.propTarget - o.achievement;
+          return `<tr><td><strong>${weeklyEsc(o.rank)}</strong></td><td>${weeklyEsc(o.officeName)}</td><td>${weeklyEsc(o.solId || '-')}</td><td>${weeklyEsc(o.officeType)}</td><td>${weeklyEsc(o.division || '-')}</td><td class="num">${Math.round(o.annualTarget).toLocaleString('en-IN')}</td><td class="num">${Math.round(o.propTarget).toLocaleString('en-IN')}</td><td class="num">${Math.round(o.achievement).toLocaleString('en-IN')}</td><td class="num">${o.pct.toFixed(2)}%</td><td class="num">${short >= 0 ? 'Shortfall ' : 'Excess '}${Math.abs(Math.round(short)).toLocaleString('en-IN')}</td></tr>`;
+        }).join('') : '<tr><td colspan="10" style="text-align:center;padding:14px;color:#64748b;">No SPO/BPO data available for the selected filters.</td></tr>';
+      }
     }
 
     function renderSubDnMonitoringTable() {
@@ -12012,7 +12278,7 @@ ${cleanTable(p2)}
       const selSub=document.getElementById('subDnSubSelect')?.value||'ALL';
       const selType=document.getElementById('subDnTypeSelect')?.value||'ALL';
       const selSo=document.getElementById('subDnSoSelect')?.value||'ALL';
-      const searchQ=(document.getElementById('subDnSearchInput')?.value||'').trim().toLowerCase();
+      const selectedOfficeKey=(document.getElementById('subDnOfficeSelect')?.value||'ALL');
       const from=period.from,to=period.to;
       const periodRows=rawTransactions.filter(r=>{const iso=r.iso||r.date||'';return iso && iso>=from && iso<=to;});
       // Build the office list from ALL available transaction records first.
@@ -12037,11 +12303,11 @@ ${cleanTable(p2)}
           } else if(o.officeType!==selType) return false;
         }
         if(selSo!=='ALL'&&o.soName!==selSo)return false;
-        if(searchQ&&!(o.officeName+' '+o.solId).toLowerCase().includes(searchQ))return false;
+        if(selectedOfficeKey!=='ALL' && canonicalOfficeKey(o)!==selectedOfficeKey)return false;
         return true;
       });
       let totalAnnualTgt=0;
-      if(selSo!=='ALL'||searchQ||selType!=='ALL') totalAnnualTgt=filtered.reduce((sum,o)=>sum+getTargetForOffice(o.solId,o.officeName),0);
+      if(selSo!=='ALL'||selectedOfficeKey!=='ALL'||selType!=='ALL') totalAnnualTgt=filtered.reduce((sum,o)=>sum+getTargetForOffice(o.solId,o.officeName),0);
       else if(selSub!=='ALL') totalAnnualTgt=filtered.reduce((sum,o)=>sum+getTargetForOffice(o.solId,o.officeName),0);
       else if(selDiv!=='ALL') totalAnnualTgt=filtered.reduce((sum,o)=>sum+getTargetForOffice(o.solId,o.officeName),0);
       else totalAnnualTgt=filtered.reduce((sum,o)=>sum+getTargetForOffice(o.solId,o.officeName),0);
@@ -13022,7 +13288,7 @@ ${cleanTable(p2)}
             <td style="color:#94a3b8;">-</td>
             <td class="num">
               <strong>${d.target.toLocaleString('en-IN')}</strong>
-              ${bachatAggregate ? campaignMatrixEditButton('division',d.name,d.target) : `<span style="cursor:pointer; color:#94a3b8; font-size:10px; margin-left:4px;" onclick="editCampaignDivTarget('${d.name}', ${d.target})">✏️</span>`}
+              ${bachatAggregate ? campaignMatrixEditButton('division',d.name,d.target) : `<button type="button" class="edit-btn campaign-matrix-target-edit" onclick="editCampaignDivTarget('${d.name}', ${d.target})">✏️</button>`}
             </td>
             <td class="num" style="color:#2563eb;">${Math.round(d.opened).toLocaleString()}</td>
             <td class="num" style="color:#dc2626;">${Math.round(d.closed).toLocaleString()}</td>
@@ -13054,7 +13320,7 @@ ${cleanTable(p2)}
                 <td style="color:#94a3b8;">-</td>
                 <td class="num">
                   <span>${sub.target ? sub.target.toLocaleString() : '-'}</span>
-                  ${bachatAggregate ? campaignMatrixEditButton('subDivision',`${d.name}|||${sub.name}`,sub.target) : `<span style="cursor:pointer; color:#94a3b8; font-size:10px; margin-left:4px;" onclick="editCampaignSubTarget('${sub.name}', ${sub.target || 0})">✏️</span>`}
+                  ${bachatAggregate ? campaignMatrixEditButton('subDivision',`${d.name}|||${sub.name}`,sub.target) : `<button type="button" class="edit-btn campaign-matrix-target-edit" onclick="editCampaignSubTarget('${sub.name}', ${sub.target || 0})">✏️</button>`}
                 </td>
                 <td class="num" style="color:#2563eb;">${Math.round(sub.opened).toLocaleString()}</td>
                 <td class="num" style="color:#dc2626;">${Math.round(sub.closed).toLocaleString()}</td>
@@ -13364,6 +13630,12 @@ ${cleanTable(p2)}
         // That write is what previously caused the quota exception.
       }
       try {
+        const phonesText = JSON.stringify(officePhoneDirectory || {});
+        const teamsText = JSON.stringify(officeMonitoringTeams || {});
+        if (phonesText.length < 3000000 && teamsText.length < 3000000) {
+          safeLocalStorageSet('posb_office_phone_directory', phonesText);
+          safeLocalStorageSet('posb_office_monitoring_teams', teamsText);
+        }
         safeLocalStorageSet('posb_dashboard_config_v1_meta', JSON.stringify({savedAt:new Date().toISOString(), monitoringCount:Object.keys(officeMonitoringTeams||{}).length, phoneCount:Object.keys(officePhoneDirectory||{}).length}));
       } catch (_) {}
     }
@@ -13420,6 +13692,15 @@ ${cleanTable(p2)}
       };
       await saveDashboardConfigToIndexedDB(config);
       try {
+        // Monitoring contacts are compact enough for a second, readable
+        // browser-cache copy in normal deployments. This lets office popups
+        // retain team details even while IndexedDB is being upgraded/reopened.
+        const phonesText = JSON.stringify(officePhoneDirectory || {});
+        const teamsText = JSON.stringify(officeMonitoringTeams || {});
+        if (phonesText.length < 3000000 && teamsText.length < 3000000) {
+          safeLocalStorageSet('posb_office_phone_directory', phonesText);
+          safeLocalStorageSet('posb_office_monitoring_teams', teamsText);
+        }
         safeLocalStorageSet('posb_office_contact_meta', JSON.stringify({
           savedAt:new Date().toISOString(),
           phoneCount:Object.keys(officePhoneDirectory||{}).length,
@@ -13456,6 +13737,25 @@ ${cleanTable(p2)}
         return false;
       }
     }
+    function normalizeMonitoringTeamForDisplay(team, officeType) {
+      const source = team && typeof team === 'object' ? team : {};
+      const member = index => Array.isArray(source.members) ? (source.members[index] || {}) : {};
+      const value = (...items) => items.find(x => x !== undefined && x !== null && String(x).trim() !== '') || '';
+      return {
+        ...source,
+        primaryDesignation: value(source.primaryDesignation, monitoringPrimaryDesignation(officeType)),
+        primaryOfficerName: value(source.primaryOfficerName, source.member1Name, source.m1Name, member(0).name),
+        primaryOfficerPhone: value(source.primaryOfficerPhone, source.member1Mobile, source.m1Mobile, member(0).mobile, member(0).phone),
+        monitoringPAAtDOName: value(source.monitoringPAAtDOName, source.member2Name, source.m2Name, member(1).name),
+        monitoringPAAtDOPhone: value(source.monitoringPAAtDOPhone, source.member2Mobile, source.m2Mobile, member(1).mobile, member(1).phone),
+        subDivisionalHeadName: value(source.subDivisionalHeadName, source.member3Name, source.m3Name, member(2).name),
+        subDivisionalHeadPhone: value(source.subDivisionalHeadPhone, source.member3Mobile, source.m3Mobile, member(2).mobile, member(2).phone),
+        monitoringPAAtSDHName: value(source.monitoringPAAtSDHName, source.member4Name, source.m4Name, member(3).name),
+        monitoringPAAtSDHPhone: value(source.monitoringPAAtSDHPhone, source.member4Mobile, source.m4Mobile, member(3).mobile, member(3).phone),
+        mailOverseerName: value(source.mailOverseerName, source.member5Name, source.m5Name, member(4).name),
+        mailOverseerPhone: value(source.mailOverseerPhone, source.member5Mobile, source.m5Mobile, member(4).mobile, member(4).phone)
+      };
+    }
     function getOfficeContactConfig(solId, officeName, officeType) {
       const wantedSol = String(solId || '').trim();
       const wantedName = String(officeName || '').trim();
@@ -13483,8 +13783,8 @@ ${cleanTable(p2)}
         if (hit) phone = hit;
       }
 
-      const primaryDesignation = team.primaryDesignation || monitoringPrimaryDesignation(officeType);
-      return { phone: phone.phone || phone.officePhone || '', team: {...team, primaryDesignation} };
+      const normalizedTeam = normalizeMonitoringTeamForDisplay(team, officeType);
+      return { phone: typeof phone === 'string' ? phone : (phone.phone || phone.officePhone || ''), team: normalizedTeam };
     }
     function normalizeBulkHeader(v) {
       return String(v ?? '').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -13638,20 +13938,32 @@ ${cleanTable(p2)}
             officeName: team.officeName || '',
             officeType: team.officeType || '',
             phone: typeof phone === 'object' ? (phone.phone || phone.number || '') : phone,
-            member1Name: team.member1Name || team.m1Name || (Array.isArray(team.members)?team.members[0]?.name:'') || '',
-            member1Mobile: team.member1Mobile || team.m1Mobile || (Array.isArray(team.members)?team.members[0]?.mobile:'') || '',
-            member2Name: team.member2Name || team.m2Name || (Array.isArray(team.members)?team.members[1]?.name:'') || '',
-            member2Mobile: team.member2Mobile || team.m2Mobile || (Array.isArray(team.members)?team.members[1]?.mobile:'') || '',
-            member3Name: team.member3Name || team.m3Name || (Array.isArray(team.members)?team.members[2]?.name:'') || '',
-            member3Mobile: team.member3Mobile || team.m3Mobile || (Array.isArray(team.members)?team.members[2]?.mobile:'') || '',
+            division: team.division || '', subDivision: team.subDivision || '', soName: team.soName || '',
+            primaryOfficerName: team.primaryOfficerName || team.member1Name || team.m1Name || (Array.isArray(team.members)?team.members[0]?.name:'') || '',
+            primaryOfficerPhone: team.primaryOfficerPhone || team.member1Mobile || team.m1Mobile || (Array.isArray(team.members)?team.members[0]?.mobile:'') || '',
+            monitoringPAAtDOName: team.monitoringPAAtDOName || team.member2Name || team.m2Name || (Array.isArray(team.members)?team.members[1]?.name:'') || '',
+            monitoringPAAtDOPhone: team.monitoringPAAtDOPhone || team.member2Mobile || team.m2Mobile || (Array.isArray(team.members)?team.members[1]?.mobile:'') || '',
+            subDivisionalHeadName: team.subDivisionalHeadName || team.member3Name || team.m3Name || (Array.isArray(team.members)?team.members[2]?.name:'') || '',
+            subDivisionalHeadPhone: team.subDivisionalHeadPhone || team.member3Mobile || team.m3Mobile || (Array.isArray(team.members)?team.members[2]?.mobile:'') || '',
+            monitoringPAAtSDHName: team.monitoringPAAtSDHName || team.member4Name || team.m4Name || (Array.isArray(team.members)?team.members[3]?.name:'') || '',
+            monitoringPAAtSDHPhone: team.monitoringPAAtSDHPhone || team.member4Mobile || team.m4Mobile || (Array.isArray(team.members)?team.members[3]?.mobile:'') || '',
+            mailOverseerName: team.mailOverseerName || team.member5Name || team.m5Name || (Array.isArray(team.members)?team.members[4]?.name:'') || '',
+            mailOverseerPhone: team.mailOverseerPhone || team.member5Mobile || team.m5Mobile || (Array.isArray(team.members)?team.members[4]?.mobile:'') || '',
+            // Retain the previous column names for older Apps Script deployments.
+            member1Name: team.primaryOfficerName || team.member1Name || team.m1Name || (Array.isArray(team.members)?team.members[0]?.name:'') || '',
+            member1Mobile: team.primaryOfficerPhone || team.member1Mobile || team.m1Mobile || (Array.isArray(team.members)?team.members[0]?.mobile:'') || '',
+            member2Name: team.monitoringPAAtDOName || team.member2Name || team.m2Name || (Array.isArray(team.members)?team.members[1]?.name:'') || '',
+            member2Mobile: team.monitoringPAAtDOPhone || team.member2Mobile || team.m2Mobile || (Array.isArray(team.members)?team.members[1]?.mobile:'') || '',
+            member3Name: team.subDivisionalHeadName || team.member3Name || team.m3Name || (Array.isArray(team.members)?team.members[2]?.name:'') || '',
+            member3Mobile: team.subDivisionalHeadPhone || team.member3Mobile || team.m3Mobile || (Array.isArray(team.members)?team.members[2]?.mobile:'') || '',
             notes: team.notes || ''
           };
         })
       };
       try {
-        setAdminConfigUploadProgress(8, 'Preparing complete dashboard configuration…', true);
+        setAdminConfigUploadProgress(8, '⏳ Pending Google Sheet sync • preparing complete dashboard configuration…', true);
         await saveDashboardConfigToIndexedDB(config);
-        setAdminConfigUploadProgress(25, `Uploading ${config.campaigns.length.toLocaleString()} drives, targets and monitoring configuration…`, true);
+        setAdminConfigUploadProgress(25, `⏳ Pending Google Sheet sync • uploading ${config.campaigns.length.toLocaleString()} drives, targets and monitoring configuration…`, true);
         const res = await fetch(GOOGLE_SHEET_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -13664,14 +13976,13 @@ ${cleanTable(p2)}
           throw new Error((json && json.error) || `HTTP ${res.status}`);
         }
         const savedCount = json && json.counts ? Number(json.counts.totalConfigRows || 0) : 0;
-        setAdminConfigUploadProgress(100, `✅ Google configuration saved • ${savedCount.toLocaleString()} config rows • targets, drives, campaign parts and monitoring preserved.`, false);
+        setAdminConfigUploadProgress(100, `✅ Synced to Google Sheet • ${savedCount.toLocaleString()} config rows • targets, drives, campaign parts and monitoring preserved.`, false);
         setGoogleSheetStatus(`☁ Google configuration saved • ${savedCount.toLocaleString()} config rows • all existing local targets/drives/monitoring preserved.`);
         updateGoogleSheetButtonState();
-        setTimeout(() => setAdminConfigUploadProgress(0, 'Ready to upload dashboard configuration.', false), 2500);
         return true;
       } catch (err) {
         console.error('Google Sheet configuration save failed:', err);
-        setAdminConfigUploadProgress(0, `⚠️ Google configuration upload failed: ${err.message || err}`, false, true);
+        setAdminConfigUploadProgress(0, `⚠️ Pending Google Sheet sync — upload failed: ${err.message || err}. Use Upload Config to retry.`, false, true);
         setGoogleSheetStatus('⚠️ Local update saved, but Google Sheet configuration sync failed. Please retry.', true);
         return false;
       }
@@ -13712,7 +14023,10 @@ ${cleanTable(p2)}
         customTargets.offices[name] = num;
       } else return alert('Choose Division, Sub-Division, Office or Region.');
       saveDashboardConfigLocal(); renderDashboard();
-      setGoogleSheetStatus('✅ Target updated locally. Click Upload Target & Drive to Google Sheet to publish the change.');
+      setAdminConfigUploadProgress(1, '⏳ Pending Google Sheet sync • saving target change…', true);
+      saveDashboardConfigToGoogleSheet().then(ok => {
+        if (!ok) setGoogleSheetStatus('⚠️ Target change is pending Google Sheet sync. Use Upload Config to retry.', true);
+      });
     }
 
     async function adminUploadDashboardConfig() {
@@ -13724,7 +14038,121 @@ ${cleanTable(p2)}
       }
     }
 
+    function parseRemoteConfigValue(value) {
+      if (typeof value !== 'string') return value;
+      const text = value.trim();
+      if (!text || !/^[\[{]/.test(text)) return value;
+      try { return JSON.parse(text); } catch (_) { return value; }
+    }
+
+    function normalizeRemoteDashboardConfig(config) {
+      if (!config || typeof config !== 'object') return config;
+      const source = config.dashboardConfig && typeof config.dashboardConfig === 'object' ? config.dashboardConfig : config;
+      const normalized = {};
+      Object.keys(source).forEach(key => { normalized[key] = parseRemoteConfigValue(source[key]); });
+      // Older configuration sheets can use display labels or JSON values under
+      // different casing. Normalise them once before every config application.
+      const aliases = {
+        Campaigns:'campaigns', CAMPAIGNS:'campaigns',
+        ActiveCampaignId:'activeCampaignId', ACTIVE_CAMPAIGN_ID:'activeCampaignId',
+        CustomTargets:'customTargets', CUSTOM_TARGETS:'customTargets',
+        OfficePhoneDirectory:'officePhoneDirectory', OFFICE_PHONE_DIRECTORY:'officePhoneDirectory',
+        OfficeMonitoringTeams:'officeMonitoringTeams', OFFICE_MONITORING_TEAMS:'officeMonitoringTeams',
+        MonitoringContactRows:'monitoringContactRows', MONITORING_CONTACT_ROWS:'monitoringContactRows'
+      };
+      Object.keys(aliases).forEach(from => {
+        const to = aliases[from];
+        if (normalized[to] === undefined && normalized[from] !== undefined) normalized[to] = normalized[from];
+      });
+      return normalized;
+    }
+
+    function mergeMonitoringReferenceRows(headers, rows) {
+      if (!Array.isArray(headers) || !Array.isArray(rows) || !rows.length) return 0;
+      const keyFor = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const columns = headers.map(keyFor);
+      const read = (row, aliases) => {
+        for (const alias of aliases) {
+          const index = columns.indexOf(keyFor(alias));
+          if (index >= 0 && row[index] !== undefined && row[index] !== null && String(row[index]).trim() !== '') return String(row[index]).trim();
+        }
+        return '';
+      };
+      const phoneMap = { ...(officePhoneDirectory || {}) };
+      const teamMap = { ...(officeMonitoringTeams || {}) };
+      let count = 0;
+      rows.forEach(row => {
+        if (!Array.isArray(row)) return;
+        const solId = read(row, ['solId','sol id','sol','office id','bocode']);
+        const officeName = read(row, ['officeName','office name','name']);
+        const key = officeConfigKey(solId, officeName);
+        if (!key) return;
+        const existing = teamMap[key] || {};
+        const role = keyFor(read(row, ['monitoringRole','monitoring role','role']));
+        const rowName = read(row, ['officerName','officer name','employee name','name']);
+        const rowMobile = read(row, ['mobile','officerPhone','officer phone','contact number','phone']);
+        const officePhone = read(row, ['officePhone','office phone','phone number']);
+        if (officePhone) phoneMap[key] = officePhone;
+        const team = {
+          ...existing,
+          solId: solId || existing.solId || key,
+          officeName: officeName || existing.officeName || '',
+          officeType: read(row, ['officeType','office type','type']) || existing.officeType || '',
+          division: read(row, ['division','division name']) || existing.division || '',
+          subDivision: read(row, ['subDivision','sub division','subdivision']) || existing.subDivision || '',
+          soName: read(row, ['soName','so name','account office']) || existing.soName || '',
+          primaryOfficerName: read(row, ['primaryOfficerName','primary officer name','member1Name','member 1 name']) || existing.primaryOfficerName || existing.member1Name || '',
+          primaryOfficerPhone: read(row, ['primaryOfficerPhone','primary officer phone','member1Mobile','member 1 mobile']) || existing.primaryOfficerPhone || existing.member1Mobile || '',
+          monitoringPAAtDOName: read(row, ['monitoringPAAtDOName','monitoring pa at do name','member2Name','member 2 name']) || existing.monitoringPAAtDOName || existing.member2Name || '',
+          monitoringPAAtDOPhone: read(row, ['monitoringPAAtDOPhone','monitoring pa at do phone','member2Mobile','member 2 mobile']) || existing.monitoringPAAtDOPhone || existing.member2Mobile || '',
+          subDivisionalHeadName: read(row, ['subDivisionalHeadName','sub divisional head name','member3Name','member 3 name']) || existing.subDivisionalHeadName || existing.member3Name || '',
+          subDivisionalHeadPhone: read(row, ['subDivisionalHeadPhone','sub divisional head phone','member3Mobile','member 3 mobile']) || existing.subDivisionalHeadPhone || existing.member3Mobile || '',
+          monitoringPAAtSDHName: read(row, ['monitoringPAAtSDHName','monitoring pa at sdh name','member4Name','member 4 name']) || existing.monitoringPAAtSDHName || existing.member4Name || '',
+          monitoringPAAtSDHPhone: read(row, ['monitoringPAAtSDHPhone','monitoring pa at sdh phone','member4Mobile','member 4 mobile']) || existing.monitoringPAAtSDHPhone || existing.member4Mobile || '',
+          mailOverseerName: read(row, ['mailOverseerName','mail overseer name','member5Name','member 5 name']) || existing.mailOverseerName || existing.member5Name || '',
+          mailOverseerPhone: read(row, ['mailOverseerPhone','mail overseer phone','member5Mobile','member 5 mobile']) || existing.mailOverseerPhone || existing.member5Mobile || '',
+          notes: read(row, ['notes','remark','remarks']) || existing.notes || ''
+        };
+        // The MONITORING reference is commonly stored as one row per role.
+        // Translate those rows into the role-labelled object used by every
+        // office popup and the Administration editor.
+        if (role) {
+          if (/officephone|officecontact/.test(role)) {
+            if (rowMobile || officePhone) phoneMap[key] = rowMobile || officePhone;
+          } else if (/primary|monitoringofficer/.test(role)) {
+            team.primaryOfficerName = rowName || team.primaryOfficerName;
+            team.primaryOfficerPhone = rowMobile || team.primaryOfficerPhone;
+          } else if (/monitoringpa.*do|pado/.test(role)) {
+            team.monitoringPAAtDOName = rowName || team.monitoringPAAtDOName;
+            team.monitoringPAAtDOPhone = rowMobile || team.monitoringPAAtDOPhone;
+          } else if (/monitoringpa.*sdh|pasdh/.test(role)) {
+            team.monitoringPAAtSDHName = rowName || team.monitoringPAAtSDHName;
+            team.monitoringPAAtSDHPhone = rowMobile || team.monitoringPAAtSDHPhone;
+          } else if (/subdivisionalhead|sdh$|subdivisionhead/.test(role)) {
+            team.subDivisionalHeadName = rowName || team.subDivisionalHeadName;
+            team.subDivisionalHeadPhone = rowMobile || team.subDivisionalHeadPhone;
+          } else if (/mailoverseer|(^|_)mo$/.test(role)) {
+            team.mailOverseerName = rowName || team.mailOverseerName;
+            team.mailOverseerPhone = rowMobile || team.mailOverseerPhone;
+          }
+        }
+        // Provide legacy member names too: existing office popups understand
+        // either the role-labelled fields or these compact fields.
+        team.member1Name = team.primaryOfficerName; team.member1Mobile = team.primaryOfficerPhone;
+        team.member2Name = team.monitoringPAAtDOName; team.member2Mobile = team.monitoringPAAtDOPhone;
+        team.member3Name = team.subDivisionalHeadName; team.member3Mobile = team.subDivisionalHeadPhone;
+        team.member4Name = team.monitoringPAAtSDHName; team.member4Mobile = team.monitoringPAAtSDHPhone;
+        team.member5Name = team.mailOverseerName; team.member5Mobile = team.mailOverseerPhone;
+        teamMap[key] = team;
+        count++;
+      });
+      officePhoneDirectory = phoneMap;
+      officeMonitoringTeams = teamMap;
+      return count;
+    }
+
     function applyDashboardConfig(config) {
+      config = normalizeRemoteDashboardConfig(config);
       if (!config || typeof config !== 'object') return false;
       let changed = false;
       if (typeof config.tickerMessage === 'string' && config.tickerMessage.trim()) {
@@ -13766,14 +14194,19 @@ ${cleanTable(p2)}
         changed = true;
       }
       if (config.officePhoneDirectory && typeof config.officePhoneDirectory === 'object') {
-        if (JSON.stringify(officePhoneDirectory) !== JSON.stringify(config.officePhoneDirectory)) {
-          officePhoneDirectory = config.officePhoneDirectory || {};
+        const mergedPhones = { ...(officePhoneDirectory || {}), ...(config.officePhoneDirectory || {}) };
+        if (JSON.stringify(officePhoneDirectory) !== JSON.stringify(mergedPhones)) {
+          officePhoneDirectory = mergedPhones;
           changed = true;
         }
       }
       if (config.officeMonitoringTeams && typeof config.officeMonitoringTeams === 'object') {
-        if (JSON.stringify(officeMonitoringTeams) !== JSON.stringify(config.officeMonitoringTeams)) {
-          officeMonitoringTeams = config.officeMonitoringTeams || {};
+        const mergedTeams = { ...(officeMonitoringTeams || {}) };
+        Object.entries(config.officeMonitoringTeams || {}).forEach(([key, incoming]) => {
+          mergedTeams[key] = { ...(mergedTeams[key] || {}), ...(incoming || {}) };
+        });
+        if (JSON.stringify(officeMonitoringTeams) !== JSON.stringify(mergedTeams)) {
+          officeMonitoringTeams = mergedTeams;
           changed = true;
         }
       }
@@ -13792,12 +14225,22 @@ ${cleanTable(p2)}
             solId: row.solId || key,
             officeName: row.officeName || (teamMap[key] && teamMap[key].officeName) || '',
             officeType: row.officeType || (teamMap[key] && teamMap[key].officeType) || '',
-            member1Name: row.member1Name || '',
-            member1Mobile: row.member1Mobile || '',
-            member2Name: row.member2Name || '',
-            member2Mobile: row.member2Mobile || '',
-            member3Name: row.member3Name || '',
-            member3Mobile: row.member3Mobile || '',
+            primaryOfficerName: row.primaryOfficerName || row.member1Name || '',
+            primaryOfficerPhone: row.primaryOfficerPhone || row.member1Mobile || '',
+            monitoringPAAtDOName: row.monitoringPAAtDOName || row.member2Name || '',
+            monitoringPAAtDOPhone: row.monitoringPAAtDOPhone || row.member2Mobile || '',
+            subDivisionalHeadName: row.subDivisionalHeadName || row.member3Name || '',
+            subDivisionalHeadPhone: row.subDivisionalHeadPhone || row.member3Mobile || '',
+            monitoringPAAtSDHName: row.monitoringPAAtSDHName || row.member4Name || '',
+            monitoringPAAtSDHPhone: row.monitoringPAAtSDHPhone || row.member4Mobile || '',
+            mailOverseerName: row.mailOverseerName || row.member5Name || '',
+            mailOverseerPhone: row.mailOverseerPhone || row.member5Mobile || '',
+            member1Name: row.primaryOfficerName || row.member1Name || '',
+            member1Mobile: row.primaryOfficerPhone || row.member1Mobile || '',
+            member2Name: row.monitoringPAAtDOName || row.member2Name || '',
+            member2Mobile: row.monitoringPAAtDOPhone || row.member2Mobile || '',
+            member3Name: row.subDivisionalHeadName || row.member3Name || '',
+            member3Mobile: row.subDivisionalHeadPhone || row.member3Mobile || '',
             notes: row.notes || ''
           };
         });
@@ -14201,8 +14644,24 @@ ${cleanTable(p2)}
     }
 
     function getIndiaPostLogoDataUrl() {
-      const img = document.querySelector('.official-svg-logo');
-      return img && String(img.src || '').startsWith('data:image/') ? img.src : '';
+      return new URL('India_Post_Dak_Sewa_Jan_Sewa_Logo.png', window.location.href).href;
+    }
+
+    async function getIndiaPostLogoBase64() {
+      try {
+        const response = await fetch(getIndiaPostLogoDataUrl());
+        if (!response.ok) throw new Error(`Logo HTTP ${response.status}`);
+        const blob = await response.blob();
+        return await new Promise((resolve,reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch (err) {
+        console.warn('India Post logo could not be embedded in Excel:', err);
+        return '';
+      }
     }
 
     // Resolve the exact reporting period represented by the currently visible
@@ -14376,7 +14835,7 @@ ${cleanTable(p2)}
 <style>
 @page { size: A4 landscape; margin: 10mm 9mm 12mm 9mm; }
 * { box-sizing:border-box; }
-html,body { margin:0; padding:0; background:#fff; color:#0f172a; font-family:Arial,Helvetica,sans-serif; }
+html,body { margin:0; padding:0; background:#fff; color:#111827; font-family:Arial,Helvetica,sans-serif; font-weight:700; }
 body { font-size:10px; }
 .report-header { border-bottom:2px solid #0f172a; padding:0 0 7px; margin-bottom:8px; position:relative; min-height:62px; padding-right:105px; }
 .report-logo { position:absolute; right:0; top:0; width:88px; height:58px; object-fit:contain; }
@@ -14384,15 +14843,15 @@ body { font-size:10px; }
 .report-main { font-size:12px; font-weight:800; margin-top:3px; text-align:center; }
 .report-sub { font-size:11px; font-weight:800; margin-top:2px; text-align:center; }
 .report-period { font-size:10px; font-weight:900; margin-top:4px; text-align:center; }
-.report-meta { display:flex; justify-content:space-between; gap:10px; margin-top:6px; color:#475569; font-size:9px; }
+.report-meta { display:flex; justify-content:space-between; gap:10px; margin-top:6px; color:#1f2937; font-size:9px; font-weight:700; }
 .criteria { display:flex; flex-wrap:wrap; gap:4px 6px; margin:7px 0 9px; }
 .criterion { border:1px solid #cbd5e1; background:#f8fafc; border-radius:4px; padding:3px 6px; font-size:8.5px; font-weight:700; }
-table { width:100%; border-collapse:collapse; table-layout:auto; page-break-inside:auto; }
+table { width:100%; border-collapse:collapse; table-layout:fixed; page-break-inside:auto; }
 thead { display:table-header-group; }
 tfoot { display:table-footer-group; }
 tr { page-break-inside:avoid; page-break-after:auto; }
-th { background:#e2e8f0; color:#0f172a; font-weight:900; text-align:center; border:1px solid #94a3b8; padding:4px 5px; white-space:normal; }
-td { border:1px solid #cbd5e1; padding:3px 5px; vertical-align:middle; text-align:center; }
+th { background:#e2e8f0; color:#111827; font-weight:900; text-align:center; border:1px solid #64748b; padding:4px 5px; white-space:normal; overflow-wrap:anywhere; }
+td { border:1px solid #94a3b8; padding:3px 5px; vertical-align:middle; text-align:center; font-weight:700; white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
 td.num, th.num { text-align:right; }
 .report-footer { margin-top:7px; padding-top:5px; border-top:1px solid #cbd5e1; font-size:8px; color:#64748b; text-align:center; }
 @media print { .no-print { display:none !important; } }
@@ -14473,7 +14932,7 @@ ${pageStyles}
 
 /* Two-page PDF: A4 landscape, visually matching the dashboard. */
 @page { size: A4 landscape; margin: 8mm 8mm 9mm 8mm; }
-html,body{background:#fff!important;}
+html,body{background:#fff!important;color:#111827!important;font-weight:700!important;}
 body{padding:0!important;margin:0!important;}
 .temporal-admin-exportbar,.temporal-admin-filter-exportbar{display:none!important;}
 .no-print,.btn-action,.btn-excel,.btn-image,.btn-pdf-report,.badge{display:none!important;}
@@ -14600,7 +15059,7 @@ body{padding:0!important;margin:0!important;}
 ${pageStyles}
 @page { size: A4 landscape; margin: 8mm 8mm 9mm 8mm; }
 *{box-sizing:border-box;}
-html,body{background:#fff!important;color:#0f172a;font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;}
+html,body{background:#fff!important;color:#111827!important;font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;font-weight:700!important;}
 body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
 .no-print,.btn-action,.btn-excel,.btn-image,.btn-pdf-report,.campaign-action-btn{display:none!important;}
 .report-shell{width:100%;background:#fff;}
@@ -14656,7 +15115,7 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
     function installPdfExportButtons() {
       const tableIds = [
         'officeCountSummaryTable','officeCountDetailTable',
-        'weeklyDivisionTable','weeklySubDivisionTable','weeklyHoTable','weeklyFailTable',
+        'weeklyDivisionTable','weeklySubDivisionTable',
         'divPerfSummaryTable','subDivPerfTable','topHoSummaryTable','topSoSummaryTable','topBoSummaryTable','officePerfSummaryTable',
         'nilDivTypeTable','nilOfficesTable','campaignMatrixTable','targetMatrixTable','targetFilteredReportTable','subDnMonitoringTable',
         'zeroNegTable','officeDirectoryTable','hoLeaderTable','spoLeaderTable','bpoLeaderTable',
@@ -14677,6 +15136,94 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
         toolbar.appendChild(btn);
         table.dataset.pdfButtonInstalled = '1';
       });
+    }
+
+    // Minimal offline XLSX writer. It creates a standards-compliant Excel
+    // workbook with no CDN, plug-in, or internet connection required. The
+    // richer ExcelJS/XLSX libraries are still used automatically when loaded.
+    const simpleXlsxCrcTable = (() => {
+      const table = new Uint32Array(256);
+      for (let n=0;n<256;n++) { let c=n; for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); table[n]=c>>>0; }
+      return table;
+    })();
+    function simpleXlsxCrc32(bytes) { let c=0xFFFFFFFF; for(let i=0;i<bytes.length;i++) c=simpleXlsxCrcTable[(c^bytes[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+    function simpleXlsxU16(n) { return [n&255,(n>>>8)&255]; }
+    function simpleXlsxU32(n) { return [n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255]; }
+    function simpleXlsxColumn(col) { let out=''; for(let n=col+1;n;n=Math.floor((n-1)/26)) out=String.fromCharCode(65+((n-1)%26))+out; return out; }
+    function simpleXlsxEscape(value) { return String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;'); }
+    function simpleXlsxZip(files) {
+      const enc = new TextEncoder(), chunks=[], central=[], offsets=[]; let offset=0;
+      files.forEach(file => {
+        const name=enc.encode(file.name), data=typeof file.data==='string'?enc.encode(file.data):file.data, crc=simpleXlsxCrc32(data);
+        const local=new Uint8Array([0x50,0x4B,0x03,0x04,20,0,0,0,0,0,0,0,0,0,...simpleXlsxU32(crc),...simpleXlsxU32(data.length),...simpleXlsxU32(data.length),...simpleXlsxU16(name.length),0,0,...name]);
+        chunks.push(local,data); offsets.push(offset); offset += local.length + data.length;
+        central.push({name,data,crc});
+      });
+      const centralStart=offset;
+      central.forEach((file,i) => {
+        const name=enc.encode(file.name), head=new Uint8Array([0x50,0x4B,0x01,0x02,20,0,20,0,0,0,0,0,0,0,0,0,...simpleXlsxU32(file.crc),...simpleXlsxU32(file.data.length),...simpleXlsxU32(file.data.length),...simpleXlsxU16(name.length),0,0,0,0,0,0,0,0,...simpleXlsxU32(offsets[i]),...name]);
+        chunks.push(head); offset += head.length;
+      });
+      chunks.push(new Uint8Array([0x50,0x4B,0x05,0x06,0,0,0,0,...simpleXlsxU16(files.length),...simpleXlsxU16(files.length),...simpleXlsxU32(offset-centralStart),...simpleXlsxU32(centralStart),0,0]));
+      return new Blob(chunks,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    }
+    function downloadSimpleXlsx(rows, filenamePrefix='Export', sheetName='Report', merges=[], headerRows=[8]) {
+      const safeRows=Array.isArray(rows)?rows:[];
+      const maxCols=Math.max(1,...safeRows.map(row=>Array.isArray(row)?row.length:0));
+      const widths=Array.from({length:maxCols},(_,c)=>Math.min(48,Math.max(11,...safeRows.map(r=>String((r||[])[c]??'').length+2))));
+      const cellXml=(value,ref,style) => {
+        if (typeof value==='number' && Number.isFinite(value)) return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
+        return `<c r="${ref}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${simpleXlsxEscape(value)}</t></is></c>`;
+      };
+      const rowsXml=safeRows.map((row,r) => {
+        const style=r===0?1:(headerRows.includes(r)?3:(r>=1&&r<=6?2:0));
+        const cells=(row||[]).map((value,c)=>cellXml(value,`${simpleXlsxColumn(c)}${r+1}`,style)).join('');
+        const height = r === 0 ? 30 : (r >= 1 && r <= 6 ? 22 : (headerRows.includes(r) ? 32 : 24));
+        return `<row r="${r+1}" ht="${height}" customHeight="1">${cells}</row>`;
+      }).join('');
+      const mergeXml=(merges||[]).map(m=>`<mergeCell ref="${simpleXlsxColumn(m.s.c)}${m.s.r+1}:${simpleXlsxColumn(m.e.c)}${m.e.r+1}"/>`).join('');
+      const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="9" topLeftCell="A10" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/><pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><cols>${widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${rowsXml}</sheetData>${mergeXml?`<mergeCells count="${(merges||[]).length}">${mergeXml}</mergeCells>`:''}</worksheet>`;
+      const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDFF3EC"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8F6F0"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/></border><border><left style="thin"><color rgb="FF9AA7A1"/></left><right style="thin"><color rgb="FF9AA7A1"/></right><top style="thin"><color rgb="FF9AA7A1"/></top><bottom style="thin"><color rgb="FF9AA7A1"/></bottom></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>`;
+      const safeSheetName=String(sheetName||'Report').replace(/[\\\\/*?:\[\]]/g,'_').slice(0,31)||'Report';
+      const files=[
+        {name:'[Content_Types].xml',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+        {name:'_rels/.rels',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+        {name:'xl/workbook.xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${simpleXlsxEscape(safeSheetName)}" sheetId="1" r:id="rId1"/></sheets></workbook>`},
+        {name:'xl/_rels/workbook.xml.rels',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+        {name:'xl/worksheets/sheet1.xml',data:sheet},{name:'xl/styles.xml',data:styles}
+      ];
+      const blob=simpleXlsxZip(files), url=URL.createObjectURL(blob), link=document.createElement('a');
+      link.href=url; link.download=`${filenamePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000);
+    }
+
+    let excelExportLibraryWaiter = null;
+    function delayMs(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+    async function ensureExcelExportLibrary() {
+      if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile) return true;
+      if (excelExportLibraryWaiter) return excelExportLibraryWaiter;
+      excelExportLibraryWaiter = (async () => {
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile) return true;
+          await delayMs(150);
+        }
+        // A delayed/deferred CDN script can fail when the dashboard is opened
+        // immediately. Retry it once as an on-demand script before reporting
+        // a real offline/network error.
+        if (!document.getElementById('posbXlsxRetryScript')) {
+          const script=document.createElement('script');
+          script.id='posbXlsxRetryScript'; script.src='https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js';
+          document.head.appendChild(script);
+        }
+        const retryDeadline = Date.now() + 10000;
+        while (Date.now() < retryDeadline) {
+          if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile) return true;
+          await delayMs(150);
+        }
+        return false;
+      })();
+      try { return await excelExportLibraryWaiter; }
+      finally { excelExportLibraryWaiter = null; }
     }
 
     async function downloadTableAsExcel(tableId, filenamePrefix = 'Export') {
@@ -14718,7 +15265,8 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
 
       const xlsxAvailable = typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile;
       if (!xlsxAvailable) {
-        exportTableAsExcelCompatibleHtml(table, context, filenamePrefix);
+        const fallbackHeaderRows = Array.from({length:Math.max(1, table.tHead?.rows.length || 1)}, (_, i) => 8 + i);
+        downloadSimpleXlsx(reportRows, filenamePrefix, 'Report', merges, fallbackHeaderRows);
         return;
       }
 
@@ -14729,7 +15277,7 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
           const wsx = wb.addWorksheet('Report', { views:[{state:'frozen', ySplit:9}] });
           const excelThinBorder = { style:'thin', color:{ argb:'FF808080' } };
           const excelAllBorders = { top:excelThinBorder, bottom:excelThinBorder, left:excelThinBorder, right:excelThinBorder };
-          const logo = getIndiaPostLogoDataUrl();
+          const logo = await getIndiaPostLogoBase64();
           if (logo) {
             const imageId = wb.addImage({ base64: logo, extension: 'png' });
             wsx.addImage(imageId, { tl:{ col:Math.max(0,maxCols-1), row:0 }, ext:{ width:88, height:58 } });
@@ -14769,7 +15317,10 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
               cell.alignment=Object.assign({vertical:'middle',wrapText:true}, cell.alignment||{});
             }
           }
-          for(let c=1;c<=maxCols;c++){ let width=12; reportRows.forEach(row=>width=Math.min(60,Math.max(width,String(row[c-1]??'').length+2))); wsx.getColumn(c).width=width; }
+          for(let c=1;c<=maxCols;c++){ let width=12; reportRows.forEach(row=>width=Math.min(48,Math.max(width,String(row[c-1]??'').length+2))); wsx.getColumn(c).width=width; }
+          for(let r=2;r<=7;r++) wsx.getRow(r).height=22;
+          for(let r=startRow;r<=reportRows.length;r++) wsx.getRow(r).height = r === startRow ? 32 : 24;
+          wsx.pageSetup = { orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0, margins:{left:0.25,right:0.25,top:0.5,bottom:0.5,header:0.2,footer:0.2} };
           for(let c=1;c<=maxCols;c++){ const cell=wsx.getRow(startRow).getCell(c); cell.font={bold:true}; cell.alignment={horizontal:'center',vertical:'middle',wrapText:true}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8F6F0'}}; }
           const blob=await wb.xlsx.writeBuffer();
           const url=URL.createObjectURL(new Blob([blob],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
@@ -14787,6 +15338,8 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
         reportRows.forEach(row => { n = Math.max(n, String(row[c] ?? '').length); });
         return { wch: Math.min(Math.max(n + 2, 10), 50) };
       });
+      ws['!rows'] = reportRows.map((_, r) => ({ hpt: r === 0 ? 30 : (r >= 1 && r <= 6 ? 22 : (r === 8 ? 32 : 24)) }));
+      ws['!pageSetup'] = { orientation:'landscape', fitToWidth:1, fitToHeight:0 };
 
       const border = {
         top: { style: 'thin', color: { rgb: 'A6A6A6' } },
@@ -15189,6 +15742,18 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
       alert('Clipboard copy is not supported in this browser, so the image was downloaded instead.');
     }
 
+    function captureReportSectionAsImage(sectionId, filenamePrefix='Report_Screenshot') {
+      const section = document.getElementById(sectionId);
+      if (!section) { alert('Report section is not available yet.'); return; }
+      if (typeof html2canvas === 'undefined') { alert('Screenshot library is still loading. Please wait a moment and try again.'); return; }
+      html2canvas(section, { backgroundColor:'#ffffff', scale:2, useCORS:true, logging:false }).then(canvas => {
+        const link=document.createElement('a');
+        link.href=canvas.toDataURL('image/png');
+        link.download=`${filenamePrefix}_${new Date().toISOString().slice(0,10)}.png`;
+        document.body.appendChild(link); link.click(); link.remove();
+      }).catch(err => alert('Could not capture the report screenshot: '+(err.message || err)));
+    }
+
     function editOfficeFigures(officeName, division, currentOpened, currentClosed) {
       const newOp = prompt(`Enter new Opened count for ${officeName}:`, currentOpened);
       if (newOp === null) return;
@@ -15235,7 +15800,7 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
         const selSub = getVal('subDnSubSelect') || 'ALL';
         const selType = getVal('subDnTypeSelect') || 'ALL';
         const selSo = getVal('subDnSoSelect') || 'ALL';
-        const searchQ = (getVal('subDnSearchInput') || '').toLowerCase();
+        const selectedOfficeKey = getVal('subDnOfficeSelect') || 'ALL';
 
         if (!Array.isArray(rawTransactions) || !rawTransactions.length) {
           alert('Office data is not loaded yet. Please wait until the dashboard shows the records, then click Download Filtered Bulk Template again.');
@@ -15266,7 +15831,7 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
           if (selSub !== 'ALL' && o.subDivision !== selSub) return false;
           if (selType !== 'ALL' && o.officeType !== selType) return false;
           if (selSo !== 'ALL' && o.soName !== selSo) return false;
-          if (searchQ && !(o.officeName + ' ' + o.solId).toLowerCase().includes(searchQ)) return false;
+          if (selectedOfficeKey !== 'ALL' && canonicalOfficeKey(o) !== selectedOfficeKey) return false;
           return true;
         });
 
@@ -16013,7 +16578,10 @@ body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!importa
       }
     });
 
-    document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){ updateGoogleSheetButtonState(); }, 0); });
+    document.addEventListener('DOMContentLoaded', function(){
+      document.querySelectorAll('.official-svg-logo').forEach(img => { img.src = 'India_Post_Dak_Sewa_Jan_Sewa_Logo.png'; });
+      setTimeout(function(){ updateGoogleSheetButtonState(); }, 0);
+    });
 document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){ populateDaywiseBottomFilters(); renderDedicatedDaywiseOfficeReport(); }, 250); });
 
     // Independent welcome-popup startup: this listener is deliberately separate
@@ -16801,6 +17369,27 @@ document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', activate, { once:true });
   else activate();
 })();
+</script>
+<script>
+  // Rendering 2.4 lakh rows on every keypress is the main visible source of
+  // lag. These wrappers leave selects/clicks immediate but wait for typing to
+  // pause before recomputing a table.
+  const POSB_INPUT_DEBOUNCE_MS = 180;
+  let posbDashboardDebounceTimer = null;
+  let posbSubDnDebounceTimer = null;
+  let posbDaywiseDebounceTimer = null;
+  function renderDashboardDebounced() {
+    clearTimeout(posbDashboardDebounceTimer);
+    posbDashboardDebounceTimer = setTimeout(() => renderDashboard(), POSB_INPUT_DEBOUNCE_MS);
+  }
+  function renderSubDnMonitoringDebounced() {
+    clearTimeout(posbSubDnDebounceTimer);
+    posbSubDnDebounceTimer = setTimeout(() => renderSubDnMonitoringTable(), POSB_INPUT_DEBOUNCE_MS);
+  }
+  function renderDaywiseDebounced() {
+    clearTimeout(posbDaywiseDebounceTimer);
+    posbDaywiseDebounceTimer = setTimeout(() => renderDaywiseModule(), POSB_INPUT_DEBOUNCE_MS);
+  }
 </script>
 <style id="dashboard-loading-download-progress-style">
   #dashboardLoadingOverlay .dashboard-loading-track{height:9px;margin-top:16px;background:#e8edf2}
