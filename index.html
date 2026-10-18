@@ -5613,9 +5613,10 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     const STORE_NAME = 'posb_records_v2';
     const LEGACY_STORE_NAME = 'posb_records';
     const CONFIG_STORE_NAME = 'posb_dashboard_config';
-    // V4 repairs partially-created databases: every required store is ensured during upgrade.
-    const LOCAL_DB_SCHEMA_VERSION = 4;
+    // V5 repairs partially-created databases and triggers a schema upgrade for all older dashboard versions.
+    const LOCAL_DB_SCHEMA_VERSION = 5;
     let lastDetectedLocalDbPreviousVersion = LOCAL_DB_SCHEMA_VERSION;
+    let localDbNeedsSharedRestore = false;
 
     // Secondary browser cache for the latest data fetched from Google Sheet.
     // IndexedDB remains the primary local database. Chunking helps avoid the
@@ -5803,6 +5804,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           const db = e.target.result;
           const upgradeTx = e.target.transaction;
           lastDetectedLocalDbPreviousVersion = Number(e.oldVersion || 0);
+          if (Number(e.oldVersion || 0) > 0 && Number(e.oldVersion || 0) < LOCAL_DB_SCHEMA_VERSION) localDbNeedsSharedRestore = true;
           try { safeLocalStorageSet('posb_local_db_schema_version', String(LOCAL_DB_SCHEMA_VERSION)); } catch (_) {}
           // Do not assume an older database is complete just because it has a version number.
           // A previous interrupted/partial initialization may leave one or more stores missing.
@@ -6886,22 +6888,53 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     }
     function setFirstRunSharedBackupStatus(message, isError = false) {
       const status = document.getElementById('firstRunSharedBackupStatus');
-      if (!status) return;
-      status.hidden = !message;
-      status.textContent = message || '';
-      status.style.color = isError ? '#b91c1c' : '#1e3a5f';
+      if (status) { status.hidden = !message; status.textContent = message || ''; status.style.color = isError ? '#b91c1c' : '#1e3a5f'; }
+      const mainStatus = document.getElementById('viewOnlySyncText');
+      if (mainStatus && message) mainStatus.textContent = message;
+      const progress = document.getElementById('viewOnlySyncProgressDetail');
+      if (progress && message) progress.textContent = message;
+      const bar = document.getElementById('viewOnlySyncProgressBar');
+      if (bar && message) bar.style.width = /successfully|restored successfully/i.test(message) ? '100%' : (isError ? '0%' : '');
+      const pct = document.getElementById('viewOnlySyncPercent');
+      if (pct && message && /successfully|restored successfully/i.test(message)) pct.textContent = '100%';
     }
-    async function downloadFirstRunSharedBackup() {
+    async function downloadFirstRunSharedBackup(options = {}) {
+      const automatic = options.automatic === true;
       const button = document.getElementById('firstRunSharedBackupBtn');
       const startedAt = Date.now();
       let progressTimer = null;
       let latestPercent = 1;
+      let popupWasOpened = false;
       const formatEta = seconds => {
         if (!Number.isFinite(seconds) || seconds < 0) return 'estimating time…';
         if (seconds < 60) return `about ${Math.ceil(seconds)} sec remaining`;
         return `about ${Math.floor(seconds/60)} min ${Math.ceil(seconds%60)} sec remaining`;
       };
+      const updatePopup = (percent, message, eta, detail='') => {
+        const overlay = document.getElementById('dashboardLoadingOverlay');
+        if (!overlay?.classList.contains('active')) {
+          setDashboardLoading(true, 'Downloading and restoring shared POSB backup…', 0);
+          popupWasOpened = true;
+        }
+        const label = document.getElementById('dashboardLoadingMessage');
+        if (label) label.textContent = 'POSB shared backup • Download & restore';
+        const pct = Math.max(1, Math.min(100, Math.round(Number(percent)||1)));
+        const bar = document.getElementById('dashboardLoadingProgressBar');
+        const pctEl = document.getElementById('dashboardLoadingPercent');
+        const rows = document.getElementById('dashboardLoadingRows');
+        const etaEl = document.getElementById('dashboardLoadingEstimate');
+        const detailEl = document.getElementById('dashboardLoadingDetail');
+        if (bar) { bar.style.width = `${pct}%`; bar.setAttribute('aria-valuenow', String(pct)); }
+        if (pctEl) pctEl.textContent = `${pct}%`;
+        if (rows) rows.textContent = message || 'Preparing shared backup…';
+        if (etaEl) etaEl.textContent = eta || 'Expected time: estimating…';
+        if (detailEl) detailEl.textContent = detail || 'Keep this window open until the restore is complete.';
+        dashboardLoadingCurrentPct = pct;
+      };
       try {
+        setDashboardLoading(true, 'Downloading and restoring shared POSB backup…', 0);
+        popupWasOpened = true;
+        updatePopup(1, 'Connecting to shared backup service…', 'Expected time: estimating…', 'The dashboard will continue automatically after download.');
         if (button) { button.disabled = true; button.textContent = '⏳ Downloading shared backup…'; }
         setFirstRunSharedBackupStatus('Connecting to shared backup service…');
         if (!GOOGLE_SHEET_SCRIPT_URL || GOOGLE_SHEET_SCRIPT_URL.includes('PASTE_NEW_POSB_BACKEND')) {
@@ -6926,7 +6959,10 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
             if (!totalHeader) {
               const elapsed = (Date.now() - startedAt) / 1000;
               latestPercent = Math.min(90, Math.max(latestPercent, Math.round(8 + 6 * Math.sqrt(elapsed))));
-              setFirstRunSharedBackupStatus(`Downloading shared backup… ${latestPercent}% • ${formatEta(Math.max(1, (90-latestPercent)*2))}`);
+              const eta = Math.max(1, (90-latestPercent)*2);
+              const status = `Downloading shared backup… ${latestPercent}% • ${formatEta(eta)}`;
+              setFirstRunSharedBackupStatus(status);
+              updatePopup(Math.min(55, 3 + Math.round(latestPercent * .52)), status, `Expected time: ${formatEta(eta)}`, 'Download size is not supplied by the server; progress and time are estimates until the response completes.');
             }
           }, 700);
           while (true) {
@@ -6939,7 +6975,9 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
               const elapsed = Math.max(0.25, (Date.now()-startedAt)/1000);
               const rate = received / elapsed;
               const eta = rate > 0 ? (totalHeader-received)/rate : NaN;
-              setFirstRunSharedBackupStatus(`Downloading shared backup… ${latestPercent}% • ${formatEta(eta)}`);
+              const status = `Downloading shared backup… ${latestPercent}% • ${formatEta(eta)}`;
+              setFirstRunSharedBackupStatus(status);
+              updatePopup(Math.min(55, 3 + Math.round(latestPercent * .52)), status, `Expected time: ${formatEta(eta)}`, `Received ${(received/1048576).toFixed(1)} MB${totalHeader ? ` of ${(totalHeader/1048576).toFixed(1)} MB` : ''}.`);
             }
           }
           payloadText = chunks.map(chunk => decoder.decode(chunk, {stream:true})).join('') + decoder.decode();
@@ -6949,6 +6987,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
         latestPercent = 100;
         setFirstRunSharedBackupStatus('Download complete (100%). Validating backup…');
+        updatePopup(58, 'Download complete • validating backup…', 'Expected time: calculating restore time…', 'Checking backup integrity before changing local data.');
         let payload;
         try { payload = JSON.parse(payloadText); }
         catch (_) { throw new Error('The backup service did not return valid JSON. Ensure the latest POSB_Dashboard_Code.gs is deployed as a new web-app version.'); }
@@ -6966,17 +7005,27 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         if (!backupText.length) throw new Error('The shared backup file is empty.');
         if (backupText.length > 500 * 1024 * 1024) throw new Error('The shared backup is larger than the 500 MB safety limit.');
         setFirstRunSharedBackupStatus('Backup downloaded (100%). Restoring into this browser’s local database…');
+        updatePopup(60, 'Backup downloaded • restoring local records…', 'Expected time: estimating restore time…', 'Writing records and dashboard settings into this browser.');
         const file = new File([backupText], 'POSB_Shared_Complete_Backup.json', { type: 'application/json' });
-        const restored = await restoreEntireDashboardFromBackupFile({ files: [file], value: '' }, { allowPublic: true, startDashboard: true });
+        const restored = await restoreEntireDashboardFromBackupFile({ files: [file], value: '' }, { allowPublic: true, startDashboard: true, silentReplace: automatic });
         if (!restored) throw new Error('The shared file is not a valid POSB Complete Dashboard backup.');
         setFirstRunSharedBackupStatus('Shared backup downloaded and restored successfully (100%).');
+        updatePopup(100, 'Shared backup downloaded and restored successfully.', 'Completed • 100%', 'The dashboard is ready.');
         finishFirstRunRestoreChoice('restored');
+        return true;
       } catch (error) {
         console.warn('Shared first-run backup restore failed:', error);
         setFirstRunSharedBackupStatus(`Shared backup failed: ${error.message || error}`, true);
+        updatePopup(latestPercent, 'Shared backup restore failed.', 'Expected time: unavailable', error.message || String(error));
+        window.setTimeout(() => setDashboardLoading(false), 5000);
+        return false;
       } finally {
         if (progressTimer) clearInterval(progressTimer);
         if (button) { button.disabled = false; button.textContent = '⬇ Download & restore shared backup'; }
+        if (!automatic && !document.getElementById('firstRunSharedBackupStatus')?.textContent?.includes('successfully')) {
+          // Leave the error visible briefly in the modal, then allow the user to return to the dashboard.
+          window.setTimeout(() => setDashboardLoading(false), 3500);
+        }
       }
     }
 
@@ -6990,18 +7039,42 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         const hasLocalRecords = Array.isArray(localRecords) && localRecords.length > 0;
         startPortalNetworkMonitor();
         const directFile = location.protocol === 'file:';
-        if (!hasLocalRecords) {
-          const firstRunChoice = await requestFirstRunRestoreChoice();
-          if (firstRunChoice === 'restored') {
+        // A successful shared restore is remembered across refreshes. If the
+        // IndexedDB read is temporarily empty after a previous verified restore,
+        // do not blindly download/replace the entire shared backup again.
+        const sharedRestoreMarker = safeLocalStorageGet('posb_shared_backup_restored') === 'true';
+        const sharedRestoreMarkerSchema = Number(safeLocalStorageGet('posb_shared_backup_restored_schema') || 0);
+        const previouslyRestoredSharedBackup = sharedRestoreMarker && sharedRestoreMarkerSchema === LOCAL_DB_SCHEMA_VERSION;
+        const needsSharedRestore = localDbNeedsSharedRestore || (!hasLocalRecords && !previouslyRestoredSharedBackup);
+        if (needsSharedRestore) {
+          const reason = localDbNeedsSharedRestore
+            ? `Older local dashboard database detected (v${lastDetectedLocalDbPreviousVersion} → v${LOCAL_DB_SCHEMA_VERSION}). Downloading the shared backup and replacing old local data…`
+            : 'First-time setup • automatically downloading and restoring the shared POSB backup…';
+          setGoogleSheetStatus(`♻ ${reason}`);
+          updateViewOnlySyncProgress(1, reason, true);
+          setFirstRunSharedBackupStatus(reason);
+          const restored = await downloadFirstRunSharedBackup({ automatic: true });
+          if (restored) {
+            localDbNeedsSharedRestore = false;
             startPortalNetworkMonitor();
             setTimeout(() => checkGoogleDownloadPending(rawTransactions.length), 0);
             return rawTransactions;
           }
-          if (firstRunChoice !== 'google') {
-            setGoogleSheetStatus('ℹ️ Local database is empty. Restore a backup or use “Sync Google Sheet Now” whenever you are ready.');
-            updateViewOnlySyncProgress(0, 'Local DB empty • waiting for a restore or Google Sheet download', false);
-            return [];
+          // Do not silently replace the shared-backup path with a large Google Sheet download.
+          // If an older local copy exists, keep it available when shared restore fails.
+          if (hasLocalRecords) {
+            setGoogleSheetStatus(`⚠️ Shared backup restore failed; existing local data was kept. ${document.getElementById('firstRunSharedBackupStatus')?.textContent || ''}`, true);
+            updateViewOnlySyncProgress(100, 'Shared restore failed • existing local data retained', false);
+            return localRecords;
           }
+          updateViewOnlySyncProgress(0, 'Shared backup restore failed • check the error above and reload to retry', false);
+          return [];
+        }
+        if (!hasLocalRecords && previouslyRestoredSharedBackup) {
+          const msg = '⚠️ A shared backup was previously restored in this browser, but its local records could not be read. Automatic full-backup downloads are paused to prevent repeated restores. Use “Load Local Database” to retry the local read, or click “Sync Google Sheet Now” if the local database is genuinely empty.';
+          setGoogleSheetStatus(msg, true);
+          updateViewOnlySyncProgress(0, 'Previously restored backup • local database read needs attention', false);
+          return [];
         }
         if (!hasLocalRecords && navigator.onLine) {
           // First use is the only automatic transaction download.  The normal
@@ -7495,7 +7568,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         if (valid.length !== backup.records.length) throw new Error('The backup contains invalid transaction records. No data was changed.');
         updateDashboardLoadingProgress(30, `Backup validated • ${valid.length.toLocaleString()} records ready to restore`, true);
         const existingCount = await getIndexedDBRecordCount();
-        if (!allowPublicRestore || existingCount > 0) {
+        if ((!allowPublicRestore || existingCount > 0) && options.silentReplace !== true) {
           const okay = confirm(`RESTORE COMPLETE DASHBOARD BACKUP\n\nFile: ${file.name}\nBackup records: ${valid.length.toLocaleString()}\nCurrent local records to replace: ${existingCount.toLocaleString()}\nConfiguration: ${backup.dashboardConfig ? 'included' : 'not included'}\n\nThis replaces this browser's local data, targets, campaigns, monitoring details, and POSB settings. Google Sheets will not be changed. The dashboard will start immediately after restoration.\n\nContinue?`);
           if (!okay) { setDashboardLoading(false); return false; }
         }
@@ -7536,9 +7609,20 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
             if (/^posb_/i.test(key) && typeof value === 'string') safeLocalStorageSet(key, value);
           });
         }
+        // Re-assert current schema after importing backup localStorage; the
+        // source backup may contain an older schema-version preference.
+        safeLocalStorageSet('posb_local_db_schema_version', String(LOCAL_DB_SCHEMA_VERSION));
         safeLocalStorageSet('posb_local_db_verified_rows', String(valid.length));
         safeLocalStorageSet('posb_local_db_verified_at', new Date().toISOString());
         safeLocalStorageSet('posb_local_db_verified', 'true');
+        const persistedRecordCount = await getIndexedDBRecordCount();
+        if (persistedRecordCount !== valid.length) {
+          throw new Error(`Local database persistence check failed (${persistedRecordCount.toLocaleString()} of ${valid.length.toLocaleString()} records are readable). The backup was not marked as complete.`);
+        }
+        safeLocalStorageSet('posb_shared_backup_restored', 'true');
+        safeLocalStorageSet('posb_shared_backup_restored_schema', String(LOCAL_DB_SCHEMA_VERSION));
+        safeLocalStorageSet('posb_shared_backup_restored_count', String(valid.length));
+        safeLocalStorageSet('posb_shared_backup_restored_at', new Date().toISOString());
         lastLocalStoreLoadMs = performance.now() - restoreStartedAt;
         try { safeLocalStorageSet('posb_local_store_load_ms', String(Math.round(lastLocalStoreLoadMs))); } catch (_) {}
         updateDashboardLoadingProgress(95, 'Starting dashboard from restored local data…', true);
@@ -18794,9 +18878,7 @@ document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){
   #googleUpdateAvailableAlert{position:fixed;z-index:10040;right:18px;bottom:18px;width:min(440px,calc(100vw - 36px));padding:14px;border:2px solid #f59e0b;border-radius:12px;background:#fff8df;box-shadow:0 12px 30px rgba(120,80,0,.22);color:#713f12;font-family:Arial,Helvetica,sans-serif}.google-update-title{font-weight:900;font-size:14px}.google-update-copy{margin-top:4px;font-size:12px;line-height:1.35}.google-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}.google-update-actions button{border:0;border-radius:7px;padding:8px 10px;font-weight:900;cursor:pointer}.google-update-actions .sync{background:#b45309;color:#fff}.google-update-actions .dismiss{background:#fff;color:#713f12;border:1px solid #d6a84d}
   #restoreCompletionNotice{position:fixed;z-index:10045;right:18px;bottom:18px;width:min(510px,calc(100vw - 36px));padding:14px;border:2px solid #059669;border-radius:12px;background:#ecfdf5;box-shadow:0 12px 30px rgba(5,150,105,.2);color:#065f46;font:700 12px/1.45 Arial,Helvetica,sans-serif}.restore-completion-title{font-size:14px;font-weight:900;margin-bottom:4px}
 </style>
-<div id="firstRunRestoreOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="firstRunRestoreTitle">
-  <div class="startup-restore-card"><h2 id="firstRunRestoreTitle">Restore a saved dashboard backup?</h2><p>This browser has no local POSB data yet. Restore the shared approved backup for the fastest startup, choose a backup file, or download current data from Google Sheets.</p><div class="startup-restore-note">Restore is available to every user on first launch. It changes only this browser’s local database; Google Sheets are not modified.</div><div class="startup-restore-actions"><button type="button" class="shared" id="firstRunSharedBackupBtn" onclick="downloadFirstRunSharedBackup()">⬇ Download &amp; restore shared backup</button><button type="button" class="restore" onclick="chooseFirstRunBackupRestore()">♻ Choose backup and restore</button><button type="button" class="download" onclick="continueFirstRunWithGoogleDownload()">☁ Download current data from Google Sheet</button><button type="button" class="empty" onclick="continueFirstRunWithoutData()">Open empty dashboard</button></div><a class="startup-restore-link" href="https://1drv.ms/u/c/bdc8638427835519/IQBHUVuElBvSSL82veOft7YAAW0Rh_Eyw6T2OGZhlibAxC8?e=deaaZT" target="_blank" rel="noopener">Open shared backup in browser</a><div id="firstRunSharedBackupStatus" class="startup-restore-status" hidden aria-live="polite"></div><input id="firstRunRestoreFile" type="file" accept="application/json,.json" hidden onchange="restoreFirstRunBackup(this)"></div>
-</div>
+<div id="firstRunRestoreOverlay" hidden aria-hidden="true"><div id="firstRunSharedBackupStatus" class="startup-restore-status" hidden aria-live="polite"></div></div>
 <div id="googleUpdateAvailableAlert" hidden role="status" aria-live="polite"><div class="google-update-title">⚠️ Google Sheet update available</div><div class="google-update-copy" id="googleUpdateAvailableText">New or revised data is available.</div><div class="google-update-actions"><button type="button" class="dismiss" onclick="hideGoogleUpdateAvailable()">Later</button><button type="button" class="sync" onclick="syncPendingGoogleUpdate()">↻ Update now</button></div></div>
 <div id="restoreCompletionNotice" hidden role="status" aria-live="polite"><div class="restore-completion-title">✅ Local backup restoration completed</div><div id="restoreCompletionNoticeText"></div></div>
 <script>
