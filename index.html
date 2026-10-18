@@ -5613,7 +5613,8 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     const STORE_NAME = 'posb_records_v2';
     const LEGACY_STORE_NAME = 'posb_records';
     const CONFIG_STORE_NAME = 'posb_dashboard_config';
-    const LOCAL_DB_SCHEMA_VERSION = 3;
+    // V4 repairs partially-created databases: every required store is ensured during upgrade.
+    const LOCAL_DB_SCHEMA_VERSION = 4;
     let lastDetectedLocalDbPreviousVersion = LOCAL_DB_SCHEMA_VERSION;
 
     // Secondary browser cache for the latest data fetched from Google Sheet.
@@ -5800,14 +5801,19 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         const req = indexedDB.open(DB_NAME, LOCAL_DB_SCHEMA_VERSION);
         req.onupgradeneeded = (e) => {
           const db = e.target.result;
+          const upgradeTx = e.target.transaction;
           lastDetectedLocalDbPreviousVersion = Number(e.oldVersion || 0);
           try { safeLocalStorageSet('posb_local_db_schema_version', String(LOCAL_DB_SCHEMA_VERSION)); } catch (_) {}
+          // Do not assume an older database is complete just because it has a version number.
+          // A previous interrupted/partial initialization may leave one or more stores missing.
           const records = db.objectStoreNames.contains(STORE_NAME)
-            ? e.target.transaction.objectStore(STORE_NAME)
+            ? upgradeTx.objectStore(STORE_NAME)
             : db.createObjectStore(STORE_NAME, { keyPath: 'id' });
           if (!records.indexNames.contains('by_date')) records.createIndex('by_date', 'date', { unique: false });
           if (!db.objectStoreNames.contains(CONFIG_STORE_NAME)) db.createObjectStore(CONFIG_STORE_NAME, { keyPath: 'id' });
           if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'id' });
+          // Keep the legacy store available for safe one-time migration where needed.
+          if (!db.objectStoreNames.contains(LEGACY_STORE_NAME)) db.createObjectStore(LEGACY_STORE_NAME, { keyPath: 'id' });
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error || new Error('IndexedDB could not be opened'));
@@ -5836,6 +5842,50 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     }
 
     const PENDING_DAILY_SUMMARY_UPDATES_KEY = 'posb_pending_daily_summary_updates_v1';
+    const FULL_DOWNLOAD_CHECKPOINT_ID = 'daily_summary_full_download_checkpoint_v1';
+
+    async function getFullDownloadCheckpoint() {
+      const db = await openLocalDB();
+      try {
+        const tx = db.transaction('meta', 'readonly');
+        const value = await idbRequest(tx.objectStore('meta').get(FULL_DOWNLOAD_CHECKPOINT_ID));
+        await idbTransactionDone(tx);
+        return value || null;
+      } finally { db.close(); }
+    }
+
+    // A new full Google download is checkpointed page-by-page.  This makes an
+    // interrupted initial import resumable without ever marking the database
+    // as a completed/current cache before the final count is verified.
+    async function beginFullDownloadCheckpoint(checkpoint) {
+      const db = await openLocalDB();
+      try {
+        const tx = db.transaction([STORE_NAME, 'meta'], 'readwrite');
+        tx.objectStore(STORE_NAME).clear();
+        tx.objectStore('meta').put({ ...checkpoint, id: FULL_DOWNLOAD_CHECKPOINT_ID, updatedAt: new Date().toISOString() });
+        await idbTransactionDone(tx);
+      } finally { db.close(); }
+    }
+    async function saveFullDownloadCheckpointPage(records, checkpoint) {
+      const rows = (Array.isArray(records) ? records : []).map(durableRecord).filter(row => row.id && row.date);
+      const db = await openLocalDB();
+      try {
+        const tx = db.transaction([STORE_NAME, 'meta'], 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        rows.forEach(row => store.put(row));
+        tx.objectStore('meta').put({ ...checkpoint, id: FULL_DOWNLOAD_CHECKPOINT_ID, updatedAt: new Date().toISOString() });
+        await idbTransactionDone(tx);
+        return rows.length;
+      } finally { db.close(); }
+    }
+    async function clearFullDownloadCheckpoint() {
+      const db = await openLocalDB();
+      try {
+        const tx = db.transaction('meta', 'readwrite');
+        tx.objectStore('meta').delete(FULL_DOWNLOAD_CHECKPOINT_ID);
+        await idbTransactionDone(tx);
+      } finally { db.close(); }
+    }
     function formatDailySummaryBatchDates(batches, limit = 4) {
       const dates = (Array.isArray(batches) ? batches : []).map(batch => String(batch?.date || '').slice(0,10)).filter(Boolean);
       const labels = dates.slice(0, limit).map(date => /^\d{4}-\d{2}-\d{2}$/.test(date) ? formatDateDMY(date) : date);
@@ -5913,9 +5963,15 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     async function saveRemoteDateBatchesToIndexedDB(records, replaceDates) {
       const list = (Array.isArray(records) ? records : []).map(durableRecord).filter(r => r.id && r.date);
       const dates = [...new Set((replaceDates || []).filter(Boolean))];
+      const rowsByDate = new Map();
+      list.forEach(row => {
+        if (!rowsByDate.has(row.date)) rowsByDate.set(row.date, []);
+        rowsByDate.get(row.date).push(row);
+      });
       const db = await openLocalDB();
       try {
         for (const date of dates) {
+          const replacementRows = rowsByDate.get(date) || [];
           await new Promise((resolve, reject) => {
             const tx = db.transaction(STORE_NAME, 'readwrite');
             const store = tx.objectStore(STORE_NAME);
@@ -5923,7 +5979,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
             cursor.onsuccess = () => {
               const item = cursor.result;
               if (item) { item.delete(); item.continue(); return; }
-              list.filter(row => row.date === date).forEach(row => store.put(row));
+              replacementRows.forEach(row => store.put(row));
             };
             cursor.onerror = () => reject(cursor.error || new Error('Could not replace local date batch'));
             tx.oncomplete = () => resolve(true);
@@ -5958,7 +6014,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       }
     }
 
-    async function persistAndVerifyLocalDatabase(records, changedDates) {
+    async function persistAndVerifyLocalDatabase(records, changedDates, onProgress = null, forceFullWrite = false) {
       const rows = Array.isArray(records) ? records : [];
       const expected = new Set(rows.map(localRecordId).filter(Boolean)).size;
       if (!expected) throw new Error('No valid DAILY_SUMMARY rows were available for local storage.');
@@ -5967,11 +6023,12 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       const beforeWrite = await getIndexedDBRecordCount();
       // The first download uses one checked transaction for the complete
       // dataset. Later syncs retain the fast per-date replacement path.
-      if (beforeWrite === 0) {
-        const initialSaved = await saveToIndexedDB(rows, true, true);
+      if (beforeWrite === 0 || forceFullWrite) {
+        const initialSaved = await saveToIndexedDB(rows, true, true, onProgress);
         if (!initialSaved) throw new Error('The browser could not save the initial Google download to its local database.');
       } else {
         await saveRemoteDateBatchesToIndexedDB(rows, changedDates);
+        if (typeof onProgress === 'function') onProgress(rows.length, expected);
       }
       let stored = await getIndexedDBRecordCount();
 
@@ -5979,7 +6036,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       // a false success. Repair with one complete deterministic snapshot, then
       // verify the persisted count before the UI may say "synced".
       if (stored < expected) {
-        const repaired = await saveToIndexedDB(rows, true, true);
+        const repaired = await saveToIndexedDB(rows, true, true, onProgress);
         if (!repaired) throw new Error('The browser could not permanently save the downloaded data to its local database.');
         stored = await getIndexedDBRecordCount();
       }
@@ -5991,19 +6048,31 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       return stored;
     }
 
-    async function saveToIndexedDB(records, overwrite = true, verify = false) {
+    async function saveToIndexedDB(records, overwrite = true, verify = false, onProgress = null) {
       const list = Array.isArray(records) ? records : [];
       try {
         const db = await openLocalDB();
-        await new Promise((resolve, reject) => {
+        const runTransaction = worker => new Promise((resolve, reject) => {
           const tx = db.transaction(STORE_NAME, 'readwrite');
           const store = tx.objectStore(STORE_NAME);
-          if (overwrite) store.clear();
-          list.forEach(record => store.put(durableRecord(record)));
+          worker(store);
           tx.oncomplete = resolve;
           tx.onerror = () => reject(tx.error || new Error('IndexedDB write failed'));
           tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
         });
+
+        // Large first-time imports are deliberately written in batches. A
+        // single transaction containing 2.5 lakh individual puts can make a
+        // new browser appear frozen or be aborted by storage pressure.
+        if (overwrite) await runTransaction(store => store.clear());
+        const batchSize = 10000;
+        for (let start = 0; start < list.length; start += batchSize) {
+          const batch = list.slice(start, start + batchSize);
+          await runTransaction(store => batch.forEach(record => store.put(durableRecord(record))));
+          if (typeof onProgress === 'function') onProgress(Math.min(start + batch.length, list.length), list.length);
+          // Give Chromium a paint/input opportunity during a first import.
+          if (start + batch.length < list.length) await new Promise(resolve => setTimeout(resolve, 0));
+        }
 
         // Verification is optional. Full count verification is expensive on a
         // large dashboard and is not required for normal background sync.
@@ -6390,8 +6459,10 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     }
 
     function refreshDashboardFromLocalData(statusText) {
-      // A new local snapshot invalidates derived aggregates once. Filter typing
-      // and tab switches reuse that aggregate instead of rebuilding it.
+      // A new local snapshot invalidates derived aggregates once. On the
+      // landing screen do not render every hidden report: 250k+ records made
+      // a completed download look frozen while unused modules were rebuilt.
+      // The selected section is rendered immediately when the user opens it.
       window.__posbLocalDataRevision = (window.__posbLocalDataRevision || 0) + 1;
       normalizeTransactionMetrics(rawTransactions);
       updateHeaderLastUpdated();
@@ -6404,17 +6475,6 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       };
       safe('storage label', updateStorageLabel);
       safe('main filters', populateFilters);
-      safe('sub-division filters', populateSubDnFilters);
-      safe('sub-division date filters', populateSubDnDateFilters);
-      safe('office consolidation', consolidateOffices);
-      safe('main dashboard', renderDashboard);
-      safe('sub-dn monitoring', renderSubDnMonitoringTable);
-      safe('campaign performance', renderCampaignPerformanceModule);
-      safe('day-wise module', renderDaywiseModule);
-      safe('weekly filters', populateWeeklyFilters);
-      safe('weekly monitoring', renderWeeklyMonitoring);
-      safe('office-count filters', populateOfficeCountFilters);
-      safe('office count', renderOfficeCount);
       safe('welcome modal dates', updateWelcomeModalDates);
       if (statusText) {
         const csvEl = document.getElementById('csvStatus');
@@ -6796,6 +6856,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     // error from stopping the data loader.
     let automaticStartupDataLoadStarted = false;
     let firstRunRestoreChoiceResolver = null;
+    const POSB_SHARED_STARTUP_BACKUP_URL = 'https://1drv.ms/u/c/bdc8638427835519/IQBHUVuElBvSSL82veOft7YAAW0Rh_Eyw6T2OGZhlibAxC8?e=deaaZT';
 
     function requestFirstRunRestoreChoice() {
       const overlay = document.getElementById('firstRunRestoreOverlay');
@@ -6822,6 +6883,101 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       const restored = await restoreEntireDashboardFromBackupFile(input, { allowPublic: true, startDashboard: true });
       if (restored) finishFirstRunRestoreChoice('restored');
       else if (overlay) overlay.hidden = false;
+    }
+    function setFirstRunSharedBackupStatus(message, isError = false) {
+      const status = document.getElementById('firstRunSharedBackupStatus');
+      if (!status) return;
+      status.hidden = !message;
+      status.textContent = message || '';
+      status.style.color = isError ? '#b91c1c' : '#1e3a5f';
+    }
+    async function downloadFirstRunSharedBackup() {
+      const button = document.getElementById('firstRunSharedBackupBtn');
+      const startedAt = Date.now();
+      let progressTimer = null;
+      let latestPercent = 1;
+      const formatEta = seconds => {
+        if (!Number.isFinite(seconds) || seconds < 0) return 'estimating time…';
+        if (seconds < 60) return `about ${Math.ceil(seconds)} sec remaining`;
+        return `about ${Math.floor(seconds/60)} min ${Math.ceil(seconds%60)} sec remaining`;
+      };
+      try {
+        if (button) { button.disabled = true; button.textContent = '⏳ Downloading shared backup…'; }
+        setFirstRunSharedBackupStatus('Connecting to shared backup service…');
+        if (!GOOGLE_SHEET_SCRIPT_URL || GOOGLE_SHEET_SCRIPT_URL.includes('PASTE_NEW_POSB_BACKEND')) {
+          throw new Error('Google backup relay is not configured.');
+        }
+        // Apps Script deployments can return a JSON error when an older version
+        // is still deployed. Read it explicitly so the user sees the real cause.
+        const response = await fetch(`${GOOGLE_SHEET_SCRIPT_URL}?action=shared_backup&_=${Date.now()}`, {
+          method: 'GET', mode: 'cors', cache: 'no-store', redirect: 'follow'
+        });
+        if (!response.ok) throw new Error(`Shared backup download returned HTTP ${response.status}.`);
+        const totalHeader = Number(response.headers.get('content-length')) || 0;
+        let payloadText = '';
+        if (response.body && response.body.getReader) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          const chunks = [];
+          let received = 0;
+          progressTimer = setInterval(() => {
+            // When Apps Script omits Content-Length, show an honest estimated
+            // progress indicator rather than pretending the byte count is known.
+            if (!totalHeader) {
+              const elapsed = (Date.now() - startedAt) / 1000;
+              latestPercent = Math.min(90, Math.max(latestPercent, Math.round(8 + 6 * Math.sqrt(elapsed))));
+              setFirstRunSharedBackupStatus(`Downloading shared backup… ${latestPercent}% • ${formatEta(Math.max(1, (90-latestPercent)*2))}`);
+            }
+          }, 700);
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            chunks.push(part.value);
+            received += part.value.byteLength;
+            if (totalHeader > 0) {
+              latestPercent = Math.min(99, Math.floor(received / totalHeader * 100));
+              const elapsed = Math.max(0.25, (Date.now()-startedAt)/1000);
+              const rate = received / elapsed;
+              const eta = rate > 0 ? (totalHeader-received)/rate : NaN;
+              setFirstRunSharedBackupStatus(`Downloading shared backup… ${latestPercent}% • ${formatEta(eta)}`);
+            }
+          }
+          payloadText = chunks.map(chunk => decoder.decode(chunk, {stream:true})).join('') + decoder.decode();
+        } else {
+          payloadText = await response.text();
+        }
+        if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+        latestPercent = 100;
+        setFirstRunSharedBackupStatus('Download complete (100%). Validating backup…');
+        let payload;
+        try { payload = JSON.parse(payloadText); }
+        catch (_) { throw new Error('The backup service did not return valid JSON. Ensure the latest POSB_Dashboard_Code.gs is deployed as a new web-app version.'); }
+        if (!payload?.success || !payload?.backup) {
+          const relayError = payload?.error || 'Shared backup relay returned no backup data.';
+          if (/Unsupported action:\s*shared_backup/i.test(relayError)) {
+            throw new Error('The deployed Google Apps Script is an older version and does not support shared_backup. Deploy the updated POSB_Dashboard_Code.gs as a new web-app version, then reload this dashboard.');
+          }
+          if (/You do not have permission to call UrlFetchApp\.fetch|script\.external_request|authorization is required/i.test(relayError)) {
+            throw new Error('Google Apps Script external-request permission is not authorized. In Extensions → Apps Script, select authorizeExternalRequests and click Run; approve the permission prompt, then Deploy → Manage deployments → Edit → New version → Deploy. Reload this dashboard and retry.');
+          }
+          throw new Error(relayError);
+        }
+        const backupText = JSON.stringify(payload.backup);
+        if (!backupText.length) throw new Error('The shared backup file is empty.');
+        if (backupText.length > 500 * 1024 * 1024) throw new Error('The shared backup is larger than the 500 MB safety limit.');
+        setFirstRunSharedBackupStatus('Backup downloaded (100%). Restoring into this browser’s local database…');
+        const file = new File([backupText], 'POSB_Shared_Complete_Backup.json', { type: 'application/json' });
+        const restored = await restoreEntireDashboardFromBackupFile({ files: [file], value: '' }, { allowPublic: true, startDashboard: true });
+        if (!restored) throw new Error('The shared file is not a valid POSB Complete Dashboard backup.');
+        setFirstRunSharedBackupStatus('Shared backup downloaded and restored successfully (100%).');
+        finishFirstRunRestoreChoice('restored');
+      } catch (error) {
+        console.warn('Shared first-run backup restore failed:', error);
+        setFirstRunSharedBackupStatus(`Shared backup failed: ${error.message || error}`, true);
+      } finally {
+        if (progressTimer) clearInterval(progressTimer);
+        if (button) { button.disabled = false; button.textContent = '⬇ Download & restore shared backup'; }
+      }
     }
 
     async function autoSyncFromGoogleSheetOnLoad() {
@@ -6856,7 +7012,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           setGoogleSheetStatus('⬇ First-time setup: downloading Google Sheet records to this browser’s local database…');
           if (directFile) console.warn('Running from file://; use the local server for durable browser storage.');
           const downloaded = await syncFromGoogleSheet({
-            silent: false, background: false, retry404: true, force: true, skipLocalRestore: true, startupInitial: true
+            silent: false, background: false, retry404: true, force: false, skipLocalRestore: true, startupInitial: true
           });
           return downloaded;
         }
@@ -7566,6 +7722,14 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 
         const localDataVersion = String(safeLocalStorageGet('posb_backend_data_version') || '');
         const summaryRows = Number(meta.summaryRows || meta.dailySummaryRows || meta.totalRows || 0);
+        let savedDownloadCheckpoint = null;
+        try { savedDownloadCheckpoint = await getFullDownloadCheckpoint(); } catch (checkpointError) { console.warn('Download checkpoint read skipped:', checkpointError); }
+        const canResumeFullDownload = !force && !!savedDownloadCheckpoint &&
+          String(savedDownloadCheckpoint.dataVersion || '') === dataVersion &&
+          Number(savedDownloadCheckpoint.totalRows || 0) === summaryRows &&
+          Number(savedDownloadCheckpoint.nextOffset || 0) > 0 &&
+          Number(savedDownloadCheckpoint.nextOffset || 0) < summaryRows &&
+          String(savedDownloadCheckpoint.fromDate || '') && String(savedDownloadCheckpoint.toDate || '');
         const remoteDateBatches = Array.isArray(meta.dateBatches) ? meta.dateBatches : [];
         let localDateRevisions = {};
         try { localDateRevisions = JSON.parse(safeLocalStorageGet('posb_backend_date_revisions') || '{}') || {}; } catch (_) {}
@@ -7602,6 +7766,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 
         lastGoogleSheetRowCount = summaryRows;
         lastGoogleRecordCount = localRecordsBefore.length;
+        updateDashboardLoadingRowCounts(0, summaryRows);
 
         if (sourceUpdatedAt) {
           try { safeLocalStorageSet('posb_google_sheet_source_updated_at', sourceUpdatedAt); } catch (_) {}
@@ -7624,7 +7789,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         remoteConfig = normalizeRemoteDashboardConfig(remoteConfig);
         if (remoteConfig && typeof remoteConfig === 'object') {
           try {
-            updateViewOnlySyncProgress(8, 'Google configuration received • loading targets, campaigns and monitoring teams…', true);
+            updateViewOnlySyncProgress(8, 'Google configuration received • loading targets and campaigns…', true);
             await saveDashboardConfigToIndexedDB({
               ...remoteConfig,
               __sourceSheet: POSB_BACKEND_CONFIG_SHEET,
@@ -7635,10 +7800,11 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           } catch (_) {}
         }
 
-        // The compact CONFIG payload is the source of all dashboard settings.
-        // MONITORING is also read as a safe reference fallback for deployments
-        // that pre-date the nested monitoring-team config format.
-        try {
+        // The compact CONFIG payload is the normal source of dashboard settings.
+        // A full MONITORING reference can be large, so do not block the first
+        // DAILY_SUMMARY page on it.  It is available for an explicit maintenance
+        // sync when a legacy deployment needs that fallback.
+        if (options.loadMonitoringReference === true) try {
           updateViewOnlySyncProgress(10, 'Loading monitoring-team reference details…', true);
           let monitoringOffset = 0, monitoringDone = false, monitoringHeaders = [], monitoringRows = [];
           while (!monitoringDone) {
@@ -7660,6 +7826,8 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         } catch (referenceError) {
           console.warn('Monitoring reference sync skipped:', referenceError);
           updateViewOnlySyncProgress(12, 'Configuration ready • targets and special drives/campaigns loaded; using saved monitoring-team cache.', true);
+        } else {
+          updateViewOnlySyncProgress(12, 'Configuration ready • starting DAILY_SUMMARY download immediately. Monitoring-team reference sync is deferred.', true);
         }
 
         // Reuse the fast path only when the version, DAILY_SUMMARY row count,
@@ -7695,8 +7863,12 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         // (to capture a correction) and later dates.  A complete repair remains
         // available with {force:true}; row-count differences alone must never
         // trigger a full financial-year re-download.
-        const fromDate = options.fromDate || (changedDateList.length ? changedDateList[0] : (force ? POSB_BACKEND_FY_START : (localLatestDate || POSB_BACKEND_FY_START)));
-        const toDate = options.toDate || (changedDateList.length ? changedDateList[changedDateList.length - 1] : (googleLatestDate || localLatestDate || POSB_BACKEND_FY_START));
+        let fromDate = options.fromDate || (changedDateList.length ? changedDateList[0] : (force ? POSB_BACKEND_FY_START : (localLatestDate || POSB_BACKEND_FY_START)));
+        let toDate = options.toDate || (changedDateList.length ? changedDateList[changedDateList.length - 1] : (googleLatestDate || localLatestDate || POSB_BACKEND_FY_START));
+        if (canResumeFullDownload) {
+          fromDate = String(savedDownloadCheckpoint.fromDate).slice(0, 10);
+          toDate = String(savedDownloadCheckpoint.toDate).slice(0, 10);
+        }
 
         if (fromDate && toDate && fromDate > toDate) {
           safeLocalStorageSet('posb_backend_data_version', dataVersion);
@@ -7720,14 +7892,39 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           true
         );
 
+        // The initial full download is persisted after every page.  If the tab
+        // closes, a later open resumes at the saved offset instead of starting
+        // the entire 2.6 lakh-row transfer again.
+        const fullDownloadCheckpointMode = !force && !changedDateList.length && summaryRows > 0 &&
+          (canResumeFullDownload || localRecordsBefore.length === 0) && fromDate === POSB_BACKEND_FY_START;
+        let checkpointReceived = 0;
+        if (fullDownloadCheckpointMode) {
+          await requestPersistentBrowserStorage();
+          if (canResumeFullDownload) {
+            checkpointReceived = Math.max(0, Number(savedDownloadCheckpoint.receivedRows || savedDownloadCheckpoint.nextOffset) || 0);
+            updateDashboardLoadingRowCounts(checkpointReceived, summaryRows);
+            updateViewOnlySyncProgress(10, `Resuming saved Google download • ${checkpointReceived.toLocaleString()} / ${summaryRows.toLocaleString()} DAILY_SUMMARY records already stored locally.`, true);
+          } else {
+            await beginFullDownloadCheckpoint({
+              dataVersion, totalRows: summaryRows, fromDate, toDate, nextOffset: 0, receivedRows: 0, startedAt: new Date().toISOString()
+            });
+          }
+        }
+
         const incoming = [];
-        let offset = 0;
+        let offset = fullDownloadCheckpointMode && canResumeFullDownload
+          ? Math.max(0, Number(savedDownloadCheckpoint.nextOffset) || 0)
+          : 0;
         let page = 0;
         let done = false;
         // Initial downloads commonly receive total rows as summaryRows, while
         // incremental calls may receive rangeRows. Either value gives the
         // exact "received / total DAILY_SUMMARY records" display from page 1.
         let totalExpected = Number(meta.rangeRows || meta.summaryRows || meta.dailySummaryRows || meta.totalRows || 0);
+        // A newly deployed backend advertises its safe page size in metadata.
+        // Keep the 5,000-row fallback so this HTML remains compatible with an
+        // older deployed Apps Script until the new deployment is published.
+        const remotePageSize = Math.max(1000, Math.min(10000, Number(meta.maxPageSize || POSB_BACKEND_PAGE_SIZE) || POSB_BACKEND_PAGE_SIZE));
         const parallelPages = 4;
 
         while (!done) {
@@ -7737,21 +7934,20 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           // 5,000 rows; bounded parallel reads reduce round trips without
           // creating an unbounded burst of requests.
           const pageCount = totalExpected > 0
-            ? Math.max(1, Math.min(parallelPages, Math.ceil((totalExpected - batchStart) / POSB_BACKEND_PAGE_SIZE)))
+            ? Math.max(1, Math.min(parallelPages, Math.ceil((totalExpected - batchStart) / remotePageSize)))
             : 1;
           const requests = Array.from({length:pageCount}, (_, index) => {
-            const pageOffset = batchStart + index * POSB_BACKEND_PAGE_SIZE;
-            const pageNumber = Math.floor(pageOffset / POSB_BACKEND_PAGE_SIZE) + 1;
+            const pageOffset = batchStart + index * remotePageSize;
+            const pageNumber = Math.floor(pageOffset / remotePageSize) + 1;
             if (pageNumber > 10000) throw new Error('Backend pagination safety limit reached.');
             const url =
               `${base}?action=data` +
               `&sheet=${encodeURIComponent(POSB_BACKEND_SUMMARY_SHEET)}` +
-               (localRecordsBefore.length === 0 ? '&all=1' : '') +
               `&fromDate=${encodeURIComponent(fromDate)}` +
               `&toDate=${encodeURIComponent(toDate)}` +
                (changedDateList.length ? `&dates=${encodeURIComponent(changedDateList.join(','))}` : '') +
               `&offset=${pageOffset}` +
-              `&limit=${POSB_BACKEND_PAGE_SIZE}` +
+              `&limit=${remotePageSize}` +
               `&_=${Date.now()}_${pageNumber}`;
             return fetchJson(url).then(chunk => ({chunk, pageOffset, pageNumber}));
           });
@@ -7765,24 +7961,32 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
                          Array.isArray(chunk.rows) ? chunk.rows :
                          Array.isArray(chunk.data) ? chunk.data : [];
             const normalized = extractGoogleSheetRecords({rows});
-            if (normalized.length) incoming.push(...normalized);
+            if (normalized.length && !fullDownloadCheckpointMode) incoming.push(...normalized);
 
             const nextOffset = Number(chunk.nextOffset);
             const chunkDone = chunk.done === true || chunk.hasMore === false ||
-              rows.length < POSB_BACKEND_PAGE_SIZE ||
+              rows.length < remotePageSize ||
               (!Number.isFinite(nextOffset) && rows.length === 0);
             offset = Math.max(offset, Number.isFinite(nextOffset) && nextOffset > pageOffset
               ? nextOffset
               : pageOffset + rows.length);
             done = done || chunkDone;
 
-            const received = incoming.length;
+            if (fullDownloadCheckpointMode && normalized.length) {
+              checkpointReceived += normalized.length;
+              await saveFullDownloadCheckpointPage(normalized, {
+                dataVersion, totalRows: totalExpected || summaryRows, fromDate, toDate,
+                nextOffset: offset, receivedRows: checkpointReceived, startedAt: savedDownloadCheckpoint?.startedAt || new Date().toISOString()
+              });
+            }
+            const received = fullDownloadCheckpointMode ? checkpointReceived : incoming.length;
+            updateDashboardLoadingRowCounts(received, totalExpected || summaryRows);
             const pct = totalExpected
               ? Math.min(99, (received / totalExpected) * 90 + 10)
               : Math.min(99, 10 + Math.min(85, page * 5));
             updateViewOnlySyncProgress(
               pct,
-              `Downloading unique record sequences • page ${pageNumber} • ${received.toLocaleString()}${totalExpected ? ` / ${totalExpected.toLocaleString()}` : ''} DAILY_SUMMARY records • ${estimateRemaining(received, totalExpected)} • raw transaction shards untouched`,
+              `${fullDownloadCheckpointMode ? 'Downloading and checkpointing locally' : 'Downloading unique record sequences'} • page ${pageNumber} • ${received.toLocaleString()}${totalExpected ? ` / ${totalExpected.toLocaleString()}` : ''} DAILY_SUMMARY records • ${estimateRemaining(received, totalExpected)} • raw transaction shards untouched`,
               true
             );
             if (!rows.length && !chunkDone) throw new Error('Backend returned an empty page without a completion marker.');
@@ -7791,28 +7995,47 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           if (offset <= batchStart && !done) throw new Error('Backend pagination did not advance to the next page.');
         }
 
+        const downloadedRows = fullDownloadCheckpointMode ? checkpointReceived : incoming.length;
         updateViewOnlySyncProgress(
           99,
-          `All ${incoming.length.toLocaleString()} DAILY_SUMMARY rows downloaded • saving to local database and recalculating dashboard…`,
+          fullDownloadCheckpointMode
+            ? `All ${downloadedRows.toLocaleString()} DAILY_SUMMARY rows checkpointed • verifying the local database and recalculating dashboard…`
+            : `All ${downloadedRows.toLocaleString()} DAILY_SUMMARY rows downloaded • saving to local database and recalculating dashboard…`,
           true
         );
+        updateDashboardLoadingRowCounts(downloadedRows, totalExpected || summaryRows, 'saving');
 
-        // Date-level replacement: corrections for an existing date replace
-        // that date's summary rows. There is NO record-by-record comparison.
-        const datesBeingReplaced = new Set(changedDateList.length ? changedDateList : incoming.map(r => String(r.iso || parseToISO(r.date) || '').slice(0,10)));
-        const retained = localRecordsBefore.filter(r => {
-          const iso = r.iso || parseToISO(r.date) || '';
-          if (!iso) return true;
-          return !datesBeingReplaced.has(iso);
-        });
-
-        const dailySummaryAudit = buildDailySummarySyncAudit(localRecordsBefore, incoming, changedDateBatches);
-        rawTransactions = retained.concat(incoming);
-        normalizeTransactionMetrics(rawTransactions);
-        rawTransactions.sort((a,b) =>
-          String(a.iso || '').localeCompare(String(b.iso || '')) ||
-          String(a.solId || a.officeName || '').localeCompare(String(b.solId || b.officeName || ''))
-        );
+        let dailySummaryAudit = null;
+        let localVerifiedRows = 0;
+        if (fullDownloadCheckpointMode) {
+          rawTransactions = await loadFromIndexedDB();
+          normalizeTransactionMetrics(rawTransactions);
+          rawTransactions.sort((a,b) =>
+            String(a.iso || '').localeCompare(String(b.iso || '')) ||
+            String(a.solId || a.officeName || '').localeCompare(String(b.solId || b.officeName || ''))
+          );
+          localVerifiedRows = await getIndexedDBRecordCount();
+          if (summaryRows && localVerifiedRows < summaryRows) {
+            throw new Error(`Checkpoint verification is incomplete (${localVerifiedRows.toLocaleString()}/${summaryRows.toLocaleString()} local records). The next sync will resume automatically.`);
+          }
+          await clearFullDownloadCheckpoint();
+        } else {
+          // Date-level replacement: corrections for an existing date replace
+          // that date's summary rows. There is NO record-by-record comparison.
+          const datesBeingReplaced = new Set(changedDateList.length ? changedDateList : incoming.map(r => String(r.iso || parseToISO(r.date) || '').slice(0,10)));
+          const retained = localRecordsBefore.filter(r => {
+            const iso = r.iso || parseToISO(r.date) || '';
+            if (!iso) return true;
+            return !datesBeingReplaced.has(iso);
+          });
+          dailySummaryAudit = buildDailySummarySyncAudit(localRecordsBefore, incoming, changedDateBatches);
+          rawTransactions = retained.concat(incoming);
+          normalizeTransactionMetrics(rawTransactions);
+          rawTransactions.sort((a,b) =>
+            String(a.iso || '').localeCompare(String(b.iso || '')) ||
+            String(a.solId || a.officeName || '').localeCompare(String(b.solId || b.officeName || ''))
+          );
+        }
 
         lastGoogleRecordCount = rawTransactions.length;
 
@@ -7825,9 +8048,15 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
           if (googleLatestDate) safeLocalStorageSet('posb_google_sheet_latest_date', googleLatestDate);
         } catch (_) {}
 
-        const changedDates = [...new Set(incoming.map(r => String(r.iso || parseToISO(r.date) || '').slice(0,10)).filter(Boolean))];
-        updateViewOnlySyncProgress(99, `Download complete • permanently saving ${rawTransactions.length.toLocaleString()} rows to this browser’s local database…`, true);
-        const localVerifiedRows = await persistAndVerifyLocalDatabase(rawTransactions, changedDates);
+        if (!fullDownloadCheckpointMode) {
+          const changedDates = [...new Set(incoming.map(r => String(r.iso || parseToISO(r.date) || '').slice(0,10)).filter(Boolean))];
+          updateViewOnlySyncProgress(99, `Download complete • permanently saving ${rawTransactions.length.toLocaleString()} rows to this browser’s local database…`, true);
+          const fullSnapshotWrite = localRecordsBefore.length === 0 || (force && fromDate === POSB_BACKEND_FY_START && toDate === googleLatestDate);
+          localVerifiedRows = await persistAndVerifyLocalDatabase(rawTransactions, changedDates, (savedRows, expectedRows) => {
+            updateDashboardLoadingRowCounts(expectedRows, expectedRows, 'saving');
+            updateViewOnlySyncProgress(99, `Downloaded ${downloadedRows.toLocaleString()} row(s) • saving ${savedRows.toLocaleString()} / ${expectedRows.toLocaleString()} row(s) to the local database…`, true);
+          }, fullSnapshotWrite);
+        }
 
         const latestDate = getLatestDataISO(rawTransactions);
         if (latestDate) {
@@ -7846,7 +8075,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         const stamp = formatSyncStamp(new Date().toISOString());
         const countsMatch = !summaryRows || Number(localVerifiedRows) === Number(summaryRows);
         const finalStatus = countsMatch
-          ? `✅ New POSB backend synced • ${stamp} • ${incoming.length.toLocaleString()} DAILY_SUMMARY rows refreshed for ${formatDateDMY(fromDate)}–${formatDateDMY(toDate)} • ${localVerifiedRows.toLocaleString()} / ${summaryRows.toLocaleString()} records permanently saved in this browser’s local database • ${fmtElapsed(lastGoogleSyncMs)}`
+          ? `✅ New POSB backend synced • ${stamp} • ${downloadedRows.toLocaleString()} DAILY_SUMMARY rows refreshed for ${formatDateDMY(fromDate)}–${formatDateDMY(toDate)} • ${localVerifiedRows.toLocaleString()} / ${summaryRows.toLocaleString()} records permanently saved in this browser’s local database • ${fmtElapsed(lastGoogleSyncMs)}`
           : `⚠️ Download pending • Local DB: ${localVerifiedRows.toLocaleString()} / Google Sheet: ${summaryRows.toLocaleString()} records. Click “Sync Google Sheet Now” to fetch the remaining changed date batches.`;
         if (dailySummaryAudit) await saveDailySummarySyncAudit(dailySummaryAudit);
         const auditSuffix = dailySummaryAudit
@@ -7863,6 +8092,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
             : `Download pending • ${localVerifiedRows.toLocaleString()} / ${summaryRows.toLocaleString()} records are available locally`,
           false
         );
+        updateDashboardLoadingRowCounts(localVerifiedRows, summaryRows || localVerifiedRows, 'ready');
 
         startViewOnlyAutoRefresh();
         return rawTransactions;
@@ -8066,8 +8296,6 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
 
       onDivisionChange();
       onDaywiseDivChange();
-      populateWeeklyFilters();
-      renderWeeklyMonitoring();
     }
 
     function onDivisionChange() {
@@ -8226,12 +8454,32 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
     let dashboardLoadingEtaTimer = null;
     let dashboardLoadingStartedAt = 0;
     let dashboardLoadingDownloadStartedAt = 0;
+    let dashboardLoadingHasReceivedRows = false;
+    let dashboardLoadingGoogleDownload = false;
     let dashboardLoadingCurrentPct = 0;
     let dashboardLoadingExpectedMs = 45000;
     function formatApproxWait(ms) {
       const seconds = Math.max(1, Math.ceil(Number(ms || 0) / 1000));
       if (seconds < 60) return `about ${seconds} sec`;
       return `about ${Math.max(1, Math.round(seconds / 60))} min`;
+    }
+    function updateDashboardLoadingRowCounts(downloaded = 0, total = 0, phase = 'download') {
+      const rowsEl = document.getElementById('dashboardLoadingRows');
+      if (!rowsEl) return;
+      const received = Math.max(0, Number(downloaded) || 0);
+      const expected = Math.max(0, Number(total) || 0);
+      const pending = expected ? Math.max(0, expected - received) : null;
+      if (phase === 'download' && received > 0) {
+        dashboardLoadingHasReceivedRows = true;
+        if (!dashboardLoadingDownloadStartedAt) dashboardLoadingDownloadStartedAt = Date.now();
+      }
+      if (phase === 'saving') {
+        rowsEl.textContent = `Downloaded: ${received.toLocaleString()} / ${expected.toLocaleString()} • Pending download: 0 • Saving to local database…`;
+      } else if (phase === 'ready') {
+        rowsEl.textContent = `Downloaded: ${received.toLocaleString()} / ${expected.toLocaleString()} • Pending download: ${pending === null ? 'calculating…' : pending.toLocaleString()} • Ready locally`;
+      } else {
+        rowsEl.textContent = `Downloaded: ${received.toLocaleString()}${expected ? ` / Total: ${expected.toLocaleString()}` : ''} • Pending: ${pending === null ? 'calculating…' : pending.toLocaleString()}`;
+      }
     }
     function updateDashboardLoadingProgress(percent, detail='', active=true) {
       const overlay = document.getElementById('dashboardLoadingOverlay');
@@ -8258,11 +8506,16 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         dashboardLoadingCurrentPct = pct;
         return;
       }
-      if (pct >= 10 && !dashboardLoadingDownloadStartedAt) dashboardLoadingDownloadStartedAt = Date.now();
       dashboardLoadingCurrentPct = Math.max(dashboardLoadingCurrentPct, pct);
 
+      const elapsedSeconds = dashboardLoadingStartedAt ? Math.floor((Date.now() - dashboardLoadingStartedAt) / 1000) : 0;
+      if (dashboardLoadingGoogleDownload && !dashboardLoadingHasReceivedRows) {
+        if (etaEl) etaEl.textContent = `Waiting for the first DAILY_SUMMARY page • ETA starts after rows arrive • ${elapsedSeconds}s elapsed`;
+        return;
+      }
+
       let estimateMs;
-      if (pct >= 10 && dashboardLoadingDownloadStartedAt && pct > 10) {
+      if (dashboardLoadingHasReceivedRows && pct >= 10 && dashboardLoadingDownloadStartedAt && pct > 10) {
         const elapsedMs = Math.max(1000, Date.now() - dashboardLoadingDownloadStartedAt);
         const downloadedPct = pct - 10;
         estimateMs = (elapsedMs / downloadedPct) * Math.max(0, 100 - pct);
@@ -8270,7 +8523,6 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         estimateMs = dashboardLoadingExpectedMs || 45000;
         estimateMs *= Math.max(0.15, (100 - pct) / 100);
       }
-      const elapsedSeconds = dashboardLoadingStartedAt ? Math.floor((Date.now() - dashboardLoadingStartedAt) / 1000) : 0;
       if (etaEl) etaEl.textContent = `Approx. wait: ${formatApproxWait(estimateMs)}${pct >= 10 ? ' remaining' : ' • connecting'} • ${elapsedSeconds}s elapsed`;
     }
     function setDashboardLoading(active, message = 'Loading, please wait…', delay = 0) {
@@ -8289,6 +8541,8 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         if (dashboardLoadingEtaTimer) { clearInterval(dashboardLoadingEtaTimer); dashboardLoadingEtaTimer = null; }
         dashboardLoadingStartedAt = 0;
         dashboardLoadingDownloadStartedAt = 0;
+        dashboardLoadingHasReceivedRows = false;
+        dashboardLoadingGoogleDownload = false;
         dashboardLoadingCurrentPct = 0;
         return;
       }
@@ -8298,11 +8552,14 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
       dashboardLoadingExpectedMs = knownDuration > 0 ? knownDuration : (isLocalLoad ? 15000 : 45000);
       dashboardLoadingStartedAt = Date.now();
       dashboardLoadingDownloadStartedAt = 0;
+      dashboardLoadingHasReceivedRows = false;
+      dashboardLoadingGoogleDownload = /google/i.test(message);
       dashboardLoadingCurrentPct = 0;
       const bar = document.getElementById('dashboardLoadingProgressBar');
       if (bar) { bar.style.width = '3%'; bar.setAttribute('aria-valuenow', '3'); }
       const pctEl = document.getElementById('dashboardLoadingPercent');
       if (pctEl) pctEl.textContent = '3%';
+      updateDashboardLoadingRowCounts(0, 0);
       const detailEl = document.getElementById('dashboardLoadingDetail');
       if (detailEl) detailEl.textContent = /google/i.test(message) ? 'Connecting to Google Sheets…' : 'Preparing dashboard view…';
       const etaEl = document.getElementById('dashboardLoadingEstimate');
@@ -8405,6 +8662,7 @@ body.edit-unlocked #adminAdministrationRow { display:flex !important; }
         renderTargetMatrixFromFilters();
       } else if (tabId === 'net') {
         if (globalFilter) globalFilter.style.display = 'none';
+        consolidateOffices();
         populateOfficeDirectoryFilters();
         renderOfficeDirectory();
       } else {
@@ -18522,21 +18780,22 @@ document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){
   #dashboardLoadingOverlay .dashboard-loading-track{height:9px;margin-top:16px;background:#e8edf2}
   #dashboardLoadingOverlay .dashboard-loading-track span{width:3%;transform:none;animation:none;transition:width .3s ease;background:linear-gradient(90deg,#bb1e2d,#ffbd00)}
   #dashboardLoadingPercent{margin-top:8px;color:#541522;font:800 13px/1 Arial,sans-serif}
+  #dashboardLoadingRows{margin-top:7px;color:#1e3a5f;font:800 12px/1.35 Arial,sans-serif}
   #dashboardLoadingEstimate{margin-top:7px;color:#475569;font:700 12px/1.35 Arial,sans-serif}
   #dashboardLoadingDetail{margin-top:7px;color:#64748b;font:500 11px/1.35 Arial,sans-serif;overflow-wrap:anywhere}
 </style>
-<div id="dashboardLoadingOverlay" hidden aria-live="polite" aria-busy="true"><div class="dashboard-loading-card"><div class="dashboard-loading-spinner" aria-hidden="true"></div><div id="dashboardLoadingMessage">Loading, please wait…</div><div class="dashboard-loading-track" role="progressbar" aria-label="Google Sheets download progress" aria-valuemin="0" aria-valuemax="100"><span id="dashboardLoadingProgressBar"></span></div><div id="dashboardLoadingPercent">3%</div><div id="dashboardLoadingEstimate">Approx. wait: estimating…</div><div id="dashboardLoadingDetail">Connecting to Google Sheets…</div></div></div>
+<div id="dashboardLoadingOverlay" hidden aria-live="polite" aria-busy="true"><div class="dashboard-loading-card"><div class="dashboard-loading-spinner" aria-hidden="true"></div><div id="dashboardLoadingMessage">Loading, please wait…</div><div class="dashboard-loading-track" role="progressbar" aria-label="Google Sheets download progress" aria-valuemin="0" aria-valuemax="100"><span id="dashboardLoadingProgressBar"></span></div><div id="dashboardLoadingPercent">3%</div><div id="dashboardLoadingRows">Downloaded: 0 • Total: calculating… • Pending: calculating…</div><div id="dashboardLoadingEstimate">Approx. wait: estimating…</div><div id="dashboardLoadingDetail">Connecting to Google Sheets…</div></div></div>
 <style id="startup-restore-and-update-style">
   #dashboardLoadingOverlay{z-index:10120!important}
   #firstRunRestoreOverlay{position:fixed;inset:0;z-index:10060;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.54)}
   #firstRunRestoreOverlay[hidden],#googleUpdateAvailableAlert[hidden],#restoreCompletionNotice[hidden]{display:none!important}
   .startup-restore-card{width:min(520px,calc(100vw - 36px));padding:25px;border-radius:15px;background:#fff;color:#172033;box-shadow:0 18px 55px rgba(0,0,0,.3);font-family:Arial,Helvetica,sans-serif}
-  .startup-restore-card h2{margin:0 0 8px;font-size:19px}.startup-restore-card p{margin:0;color:#526071;font-size:13px;line-height:1.48}.startup-restore-note{margin:14px 0;padding:10px 12px;border:1px solid #bfdbfe;border-radius:9px;background:#eff6ff;color:#1e3a5f;font-size:12px;line-height:1.4}.startup-restore-actions{display:grid;gap:9px;margin-top:16px}.startup-restore-actions button{border:0;border-radius:8px;padding:11px 13px;font:800 13px Arial,sans-serif;cursor:pointer}.startup-restore-actions .restore{background:#047857;color:#fff}.startup-restore-actions .download{background:#1d4ed8;color:#fff}.startup-restore-actions .empty{background:#eef2f7;color:#334155}
+  .startup-restore-card h2{margin:0 0 8px;font-size:19px}.startup-restore-card p{margin:0;color:#526071;font-size:13px;line-height:1.48}.startup-restore-note{margin:14px 0;padding:10px 12px;border:1px solid #bfdbfe;border-radius:9px;background:#eff6ff;color:#1e3a5f;font-size:12px;line-height:1.4}.startup-restore-actions{display:grid;gap:9px;margin-top:16px}.startup-restore-actions button{border:0;border-radius:8px;padding:11px 13px;font:800 13px Arial,sans-serif;cursor:pointer}.startup-restore-actions button:disabled{opacity:.68;cursor:wait}.startup-restore-actions .restore{background:#047857;color:#fff}.startup-restore-actions .shared{background:#7c3aed;color:#fff}.startup-restore-actions .download{background:#1d4ed8;color:#fff}.startup-restore-actions .empty{background:#eef2f7;color:#334155}.startup-restore-link{display:block;margin-top:8px;text-align:center;color:#1d4ed8;font:700 12px Arial,sans-serif}.startup-restore-status{margin-top:10px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;font:700 12px/1.42 Arial,sans-serif}
   #googleUpdateAvailableAlert{position:fixed;z-index:10040;right:18px;bottom:18px;width:min(440px,calc(100vw - 36px));padding:14px;border:2px solid #f59e0b;border-radius:12px;background:#fff8df;box-shadow:0 12px 30px rgba(120,80,0,.22);color:#713f12;font-family:Arial,Helvetica,sans-serif}.google-update-title{font-weight:900;font-size:14px}.google-update-copy{margin-top:4px;font-size:12px;line-height:1.35}.google-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}.google-update-actions button{border:0;border-radius:7px;padding:8px 10px;font-weight:900;cursor:pointer}.google-update-actions .sync{background:#b45309;color:#fff}.google-update-actions .dismiss{background:#fff;color:#713f12;border:1px solid #d6a84d}
   #restoreCompletionNotice{position:fixed;z-index:10045;right:18px;bottom:18px;width:min(510px,calc(100vw - 36px));padding:14px;border:2px solid #059669;border-radius:12px;background:#ecfdf5;box-shadow:0 12px 30px rgba(5,150,105,.2);color:#065f46;font:700 12px/1.45 Arial,Helvetica,sans-serif}.restore-completion-title{font-size:14px;font-weight:900;margin-bottom:4px}
 </style>
 <div id="firstRunRestoreOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="firstRunRestoreTitle">
-  <div class="startup-restore-card"><h2 id="firstRunRestoreTitle">Restore a saved dashboard backup?</h2><p>This browser has no local POSB data yet. You can restore a complete backup before using the dashboard, or download the current data from Google Sheets.</p><div class="startup-restore-note">Restore is available to every user on first launch. It changes only this browser’s local database; Google Sheets are not modified.</div><div class="startup-restore-actions"><button type="button" class="restore" onclick="chooseFirstRunBackupRestore()">♻ Choose backup and restore</button><button type="button" class="download" onclick="continueFirstRunWithGoogleDownload()">☁ Download current data from Google Sheet</button><button type="button" class="empty" onclick="continueFirstRunWithoutData()">Open empty dashboard</button></div><input id="firstRunRestoreFile" type="file" accept="application/json,.json" hidden onchange="restoreFirstRunBackup(this)"></div>
+  <div class="startup-restore-card"><h2 id="firstRunRestoreTitle">Restore a saved dashboard backup?</h2><p>This browser has no local POSB data yet. Restore the shared approved backup for the fastest startup, choose a backup file, or download current data from Google Sheets.</p><div class="startup-restore-note">Restore is available to every user on first launch. It changes only this browser’s local database; Google Sheets are not modified.</div><div class="startup-restore-actions"><button type="button" class="shared" id="firstRunSharedBackupBtn" onclick="downloadFirstRunSharedBackup()">⬇ Download &amp; restore shared backup</button><button type="button" class="restore" onclick="chooseFirstRunBackupRestore()">♻ Choose backup and restore</button><button type="button" class="download" onclick="continueFirstRunWithGoogleDownload()">☁ Download current data from Google Sheet</button><button type="button" class="empty" onclick="continueFirstRunWithoutData()">Open empty dashboard</button></div><a class="startup-restore-link" href="https://1drv.ms/u/c/bdc8638427835519/IQBHUVuElBvSSL82veOft7YAAW0Rh_Eyw6T2OGZhlibAxC8?e=deaaZT" target="_blank" rel="noopener">Open shared backup in browser</a><div id="firstRunSharedBackupStatus" class="startup-restore-status" hidden aria-live="polite"></div><input id="firstRunRestoreFile" type="file" accept="application/json,.json" hidden onchange="restoreFirstRunBackup(this)"></div>
 </div>
 <div id="googleUpdateAvailableAlert" hidden role="status" aria-live="polite"><div class="google-update-title">⚠️ Google Sheet update available</div><div class="google-update-copy" id="googleUpdateAvailableText">New or revised data is available.</div><div class="google-update-actions"><button type="button" class="dismiss" onclick="hideGoogleUpdateAvailable()">Later</button><button type="button" class="sync" onclick="syncPendingGoogleUpdate()">↻ Update now</button></div></div>
 <div id="restoreCompletionNotice" hidden role="status" aria-live="polite"><div class="restore-completion-title">✅ Local backup restoration completed</div><div id="restoreCompletionNoticeText"></div></div>
